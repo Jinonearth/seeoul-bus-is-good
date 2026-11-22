@@ -9,8 +9,9 @@ import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
 export type Layer = 'o' | 'd' | 'u';
 export type Flow = { from: [number, number]; to: [number, number]; v: number; out: boolean };
 const HEX_RES = [7, 8, 9] as const;
-export const resForZoom = (z: number) => (z < 11 ? 7 : z < 12.5 ? 8 : 9);
-const ZRANGE: Record<number, [number, number]> = { 7: [0, 11], 8: [11, 12.5], 9: [12.5, 24] };
+// 헥사곤은 화면 줌보다 한 단계 굵게: 같은 줌에서 한 단계 큰 셀
+export const resForZoom = (z: number) => (z < 12 ? 7 : z < 13.5 ? 8 : 9);
+const ZRANGE: Record<number, [number, number]> = { 7: [0, 12], 8: [12, 13.5], 9: [13.5, 24] };
 const DOT = [0, 0.16, 0.32, 0.48, 0.64, 0.8];
 
 let protocolAdded = false;
