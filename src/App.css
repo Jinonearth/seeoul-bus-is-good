@@ -10,14 +10,13 @@
 .muted{color:var(--muted)}
 
 /* 위: 노선 막대 */
-#topbar{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));left:8px;right:8px;padding:5px 8px;z-index:3;display:flex;flex-direction:column;gap:6px;max-height:60%}
+#topbar{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));left:var(--side);right:var(--side);padding:5px 8px;z-index:3;display:flex;flex-direction:column;gap:6px;max-height:60%}
 #topbar .r2{border-top:0;padding-top:0;cursor:pointer}
 #topbar .panel{border-top:2px solid var(--ink);padding-top:9px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px}
-#bottom .r1{border-top:2px solid var(--ink);padding-top:5px}
 #bottom .clock{font-size:18px}
 #routebar::-webkit-scrollbar{display:none}
 /* 아래: 상태 막대 (그리는 중엔 노선 그리기 패널) */
-#bottom{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));padding:7px 9px;display:flex;flex-direction:column;gap:6px;z-index:3;max-height:62%}
+#bottom{position:absolute;left:var(--side);right:var(--side);bottom:calc(8px + env(safe-area-inset-bottom,0px));padding:7px 9px;display:flex;flex-direction:column;gap:6px;z-index:3;max-height:62%}
 #bottom .panel{border-top:2px solid var(--ink);padding-top:9px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px;overscroll-behavior:contain}
 #bottom .panel:first-child{border-top:0;padding-top:0}
 .more{border:0;background:transparent;width:30px;height:34px;display:grid;place-items:center;cursor:pointer;color:var(--ink);flex:none}
@@ -238,20 +237,34 @@ dl.icons dd{margin:0}
 /* 아래: 노선 상자와 재생 상자를 따로 (사이로 지도가 보여요) */
 #bottom{background:none;border:0;padding:0;gap:8px;max-height:none}
 #bottom > .box{padding:6px 8px}
-#bottom > .r1{border-top:0;padding-top:4px;padding-bottom:4px}
 #bottom > .panel{max-height:52vh}
 /* 줌: 위 +, 아래 − */
 #zoom{flex-direction:column}
 #helpbox{bottom:calc(var(--bar-h) + 16px + 100px + env(safe-area-inset-bottom,0px))}
 #legend{bottom:calc(var(--bar-h) + 16px + env(safe-area-inset-bottom,0px))}
 /* 아래 상자 낮게: 보이는 크기는 작게, 누르는 범위는 ::after로 44px */
-#bottom > #routebar{padding:3px 6px}
 #routebar .chip{min-height:36px;padding-top:2px;padding-bottom:2px;position:relative}
 #routebar .chip.add{width:44px;font-size:22px}
 #routebar .chip .n{padding:2px 7px;font-size:15px}
 #routebar .chip::after{content:"";position:absolute;left:0;right:0;top:-4px;bottom:-4px}
 #bottom .seg.speed button::after{content:"";position:absolute;left:0;right:0;top:-6px;bottom:-6px}
-#bottom > .r1{padding:3px 6px 3px 10px}
 #bottom .seg.speed button{height:32px;min-height:0;position:relative}
 #bottom .when .day{font-size:14px}
 #bottom .clock{font-size:17px}
+
+/* 위 상태 막대와 아래 두 상자: 같은 높이(--strip-h), 같은 옆 여백(--side), 2px 먹 테두리 */
+#app{--strip-h:48px;--side:10px}
+#topbar{padding:0 8px}
+#topbar > .r2{min-height:calc(var(--strip-h) - 4px);padding:0}
+#topbar > .panel{margin-bottom:8px}
+#bottom > #routebar,#bottom > .r1{height:var(--strip-h);box-sizing:border-box;padding:0 5px 0 5px;display:flex;align-items:center}
+#bottom > .r1{padding-left:10px}
+#routebar .carousel{align-self:stretch;align-items:center}
+#bottom .seg.speed{border-width:0 0 0 2px}
+#bottom .seg.speed button{height:calc(var(--strip-h) - 4px)}
+#bottom > .r1{padding-right:0}
+#legend,#zoom{left:auto}
+#legend{left:var(--side)}
+#zoom,#helpbox{right:var(--side)}
+/* 지도 출처(ⓘ): 아래 상자 밑(안전 영역 틈)에 깔리지 않게 위 상태 막대 아래 오른쪽으로 */
+#app .maplibregl-ctrl-bottom-right{top:calc(var(--top-h) + 14px + env(safe-area-inset-top,0px));bottom:auto;right:calc(var(--side) - 10px)}
