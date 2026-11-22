@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
-import { latLngToCell, cellToParent, gridDisk, cellToLatLng } from 'h3-js';
+import { latLngToCell, cellToParent, cellToChildren, gridDisk, cellToLatLng } from 'h3-js';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
-import { type Demand, loadDemand, binHours, stopable } from './game/data';
+import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH } from './game/seeds';
 import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt, WALK } from './game/model';
@@ -11,7 +11,7 @@ import { Game, fmt, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
 import { Icon } from './ui/Icon';
-import { GameMap, type Layer, type Flow, setCoverage } from './map/GameMap';
+import { GameMap, type Layer, type Flow, setCoverage, resForZoom } from './map/GameMap';
 
 // at: 팝업을 붙일 지도 위 점 (경도, 위도)
 type Sel = { kind: 'hex'; cell: string; at: [number, number] } | { kind: 'route'; id: number; at?: [number, number] } | { kind: 'draft' } | null;
@@ -123,7 +123,17 @@ function GameView({ dm }: { dm: Demand }) {
     m.onTap = ({ lngLat, route }) => {
       const d = draftRef.current;
       if (d) {   // 노선 그리기: 탭한 헥사곤(res9)마다 정류장 하나
-        const c = latLngToCell(lngLat[1], lngLat[0], 9);
+        let c = latLngToCell(lngLat[1], lngLat[0], 9);
+        // 탭한 칸에 정류장을 둘 수 없으면: 지금 줌에서 보이는 헥사곤(res7·8) 안 res9 칸, res9 줌이면 탭한 칸과 이웃 6칸 중
+        // 정류장 자리(도로 위 점)가 탭한 점에 가장 가까운 칸으로. 바로 앞 정류장과 같은 칸은 빼요
+        const res = resForZoom(m.map.getZoom()), prev = d.stops[d.stops.length - 1];
+        if (!stopable(c)) {
+          const cand = res < 9 ? cellToChildren(cellToParent(c, res), 9) : gridDisk(c, 1);
+          const near = cand.filter(x => stopable(x) && x !== prev)
+            .map(x => { const p = snapped(x); return [x, ((p[0] - lngLat[0]) * 0.79) ** 2 + (p[1] - lngLat[1]) ** 2] as const; })
+            .sort((a, b) => a[1] - b[1])[0];
+          if (near) { c = near[0]; m.flash(c); }
+        }
         if (!dm.byId.has(c) || !stopable(c)) return toast({ text: <><Icon n="x" s={14} /><Icon n="stop" s={14} /></>, kind: 'warn' });
         if (d.stops[d.stops.length - 1] === c) return;
         setDraft({ ...d, stops: [...d.stops, c] }); return;

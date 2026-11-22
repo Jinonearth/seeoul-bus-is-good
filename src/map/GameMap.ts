@@ -208,6 +208,13 @@ export class GameMap {
     }
   }
 
+  // 옮겨 놓은 정류장 칸을 잠깐 테두리로
+  private flashT = 0;
+  flash(cell: string) {
+    this.setSelected(cell); clearTimeout(this.flashT);
+    this.flashT = window.setTimeout(() => this.setSelected(null), 1200);
+  }
+
   setSelected(cell: string | null) {
     (this.map.getSource('sel') as GeoJSONSource).setData(fc(cell ? [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [cellToBoundary(cell, true)] } }] : []));
   }
