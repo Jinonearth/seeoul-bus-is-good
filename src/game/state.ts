@@ -1,13 +1,13 @@
 // 회사 상태와 시간 흐름: 하루 수송 목표, 05시 정산, 증차, 게임 오버
 import { type Demand, NB, binOf, binHours } from './data';
-import { type Route, RULES, moveBus } from './model';
+import { type Route, type Tally, RULES, moveBus } from './model';
 
 // 정산 결과: 화면이 아이콘과 숫자로 보여줘요
 export type Settle = { day: number; got: number; target: number; ok: boolean; miss: number; hit: number; grow: number };
 
 export class Game {
   dm: Demand;
-  min = RULES.settleMin;          // 게임 시작부터 흐른 분 (0 = 1일차 0시)
+  min = RULES.startMin;           // 게임 시작부터 흐른 분 (0 = 1일차 0시). 1일차는 06시 시작, 정산은 05시라 조금 짧아요
   speed = 1;                      // 0 정지, 1, 4
   fleet = RULES.fleet0;           // 보유 버스
   goalFleet = RULES.fleet0;       // 오늘 목표를 정하는 버스 수 (증차는 하루 뒤 반영)
@@ -46,12 +46,9 @@ export class Game {
   advance(gm: number) {
     if (this.over || gm <= 0) return;
     const before = this.min; this.min += gm;
-    const bin = this.bin, mins = binHours(this.dm.bins[bin]) * 60;
-    for (const r of this.routes) {
-      for (const b of r.bus) moveBus(this.dm, r, b, gm, bin);
-      const dem = r.demand[bin] / mins * gm, cap = r.capH / 60 * gm, c = Math.min(dem, cap);
-      this.todayRiders += c; this.todayMissed += dem - c;
-    }
+    const bin = this.bin, t: Tally = { rode: 0, missed: 0 };
+    for (const r of this.routes) for (const b of r.bus) moveBus(this.dm, r, b, gm, bin, t);
+    this.todayRiders += t.rode; this.todayMissed += t.missed;
     const S = RULES.settleMin;
     if (Math.floor((this.min - S) / 1440) > Math.floor((before - S) / 1440)) this.settle();
   }

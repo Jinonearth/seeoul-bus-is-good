@@ -11,6 +11,7 @@ export const RULES = {
   fleetStep: 10,       // 버스 +10대 (새 목표는 하루 뒤부터)
   maxMiss: 3,          // 3일 연속 미달이면 게임 오버
   settleMin: 5 * 60,   // 매일 05시 정산
+  startMin: 6 * 60,    // 1일차 06시(출근 시간대)에 시작
 };
 
 // ── 운행 상수 ──
@@ -136,12 +137,19 @@ function resetBuses(r: Route) {
   });
 }
 
-// 버스 한 대가 이 정류장에서 태우고 내리는 사람 (배차간격 동안 쌓인 수요)
+// 버스 한 대가 이 정류장에서 태우고 내리는 사람 (지난 버스 이후 쌓인 수요)
+// 가운데 정류장은 양방향으로 배차간격의 절반마다, 종점은 배차간격마다 버스가 와요
+// stopShare는 통행 하나를 타는 곳과 내리는 곳에서 두 번 세므로, 통행 수는 그 절반
 export function boardAt(dm: Demand, r: Route, i: number, bin: number) {
   const perMin = r.demand[bin] / (binHours(dm.bins[bin]) * 60);
-  return Math.min(BUS_CAP, Math.round(perMin * r.headway * r.stopShare[i]));
+  const end = i === 0 || i === r.stops.length - 1;
+  const raw = perMin * r.headway * r.stopShare[i] * (end ? 2 : 1);
+  const on = Math.min(BUS_CAP, raw);
+  return { n: Math.round(on), rode: on / 2, missed: (raw - on) / 2 };
 }
-export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number) {
+// 이번 걸음에 들른 정류장에서 태운/못 태운 통행을 tally에 더해요
+export type Tally = { rode: number; missed: number };
+export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number, tally?: Tally) {
   const L2 = 2 * r.lenKm; let left = gm;
   if (L2 <= 0 || !r.seq.length) return;
   for (let guard = 0; guard < 30 && left > 0; guard++) {
@@ -150,7 +158,8 @@ export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number) {
     const step = SPEED * left;
     if (step < dist) { b.s = (b.s + step) % L2; return; }
     b.s = q.s; left -= dist / SPEED;
-    const n = boardAt(dm, r, q.i, bin); b.pax = n; b.wait = DWELL0 + DWELL_PER * n; b.k = (b.k + 1) % r.seq.length;
+    const v = boardAt(dm, r, q.i, bin); b.pax = v.n; b.wait = DWELL0 + DWELL_PER * v.n; b.k = (b.k + 1) % r.seq.length;
+    if (tally) { tally.rode += v.rode; tally.missed += v.missed; }
   }
 }
 // 경로 위 거리 s(왕복) → 좌표
