@@ -244,3 +244,14 @@ dl.icons dd{margin:0}
 #zoom{flex-direction:column}
 #helpbox{bottom:calc(var(--bar-h) + 16px + 100px + env(safe-area-inset-bottom,0px))}
 #legend{bottom:calc(var(--bar-h) + 16px + env(safe-area-inset-bottom,0px))}
+/* 아래 상자 낮게: 보이는 크기는 작게, 누르는 범위는 ::after로 44px */
+#bottom > #routebar{padding:3px 6px}
+#routebar .chip{min-height:36px;padding-top:2px;padding-bottom:2px;position:relative}
+#routebar .chip.add{width:44px;font-size:22px}
+#routebar .chip .n{padding:2px 7px;font-size:15px}
+#routebar .chip::after{content:"";position:absolute;left:0;right:0;top:-4px;bottom:-4px}
+#bottom .seg.speed button::after{content:"";position:absolute;left:0;right:0;top:-6px;bottom:-6px}
+#bottom > .r1{padding:3px 6px 3px 10px}
+#bottom .seg.speed button{height:32px;min-height:0;position:relative}
+#bottom .when .day{font-size:14px}
+#bottom .clock{font-size:17px}
