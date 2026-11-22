@@ -51,7 +51,7 @@ export type Eval = {
 export type Bus = { s: number; k: number; wait: number; load: Int32Array; on: number; full: boolean; pax: number; hold: number };   // hold: 앞차와 너무 붙어서 정류장에서 더 기다릴 시간(분)
 export type Route = Eval & {
   id: number; num: string; type: RouteType; color: string; tx: string; pattern: number;
-  from: string; to: string; bus: Bus[]; example?: boolean;
+  from: string; to: string; gus: string[]; bus: Bus[]; example?: boolean;   // gus: 지나는 구 (순서대로, 중복 없이)
   today?: number;   // 오늘 이 노선에 탄 사람
   claim?: { old: Float64Array; young: Float64Array };   // 자리별 이 노선 손님 (30분 무리 둘, state.ts)
 };
@@ -161,17 +161,21 @@ export function routeNumber(dm: Demand, type: RouteType, stops: string[]) {
 }
 
 export const dongName = (dm: Demand, cell: string) => { const c = dm.byId.get(cell); return c ? dm.dongs[c.dong].n : '서울 밖'; };
+const gusOf = (dm: Demand, stops: string[]) => [...new Set(stops.map(s => guName(dm, s)).filter(Boolean))];
+// 노선 이름: 순환은 지나는 구(최대 3개, 더 있으면 …), 아니면 출발↔도착
+export const routeName = (r: { type: RouteType; from: string; to: string; gus: string[] }) =>
+  r.type === 'circ' ? (r.gus.length > 3 ? `${r.gus.slice(0, 3).join('·')}…` : r.gus.join('·')) : `${r.from}↔${r.to}`;
 export const guName = (dm: Demand, cell: string) => { const c = dm.byId.get(cell); return c ? dm.dongs[c.dong].gu.replace(/구$/, '') : ''; };
 
 let rid = 0, styleIdx = 0;
 export function makeRoute(dm: Demand, type: RouteType, stops: string[], buses: number, example = false): Route {
   const e = evalRoute(dm, stops, buses, type);
-  const r: Route = { ...e, id: ++rid, num: routeNumber(dm, type, stops), type, ...routeStyle(styleIdx++), from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]), bus: [], example };
+  const r: Route = { ...e, id: ++rid, num: routeNumber(dm, type, stops), type, ...routeStyle(styleIdx++), from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]), gus: gusOf(dm, stops), bus: [], example };
   resetBuses(r); return r;
 }
 export function updateRoute(dm: Demand, r: Route, stops: string[], buses: number) {
   r.claim = undefined;
-  Object.assign(r, evalRoute(dm, stops, buses, r.type), { from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]) });
+  Object.assign(r, evalRoute(dm, stops, buses, r.type), { from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]), gus: gusOf(dm, stops) });
   resetBuses(r);
 }
 // 버스를 고리 위에 고르게

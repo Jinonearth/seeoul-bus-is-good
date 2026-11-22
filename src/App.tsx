@@ -6,7 +6,7 @@ import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH, SEED_CIRC } from './game/seeds';
-import { type Route, type RouteType, TYPES, RULES, BUS_CAP, makeRoute, updateRoute, evalRoute, routePath, routeStyle, WALK } from './game/model';
+import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, makeRoute, updateRoute, evalRoute, routePath, routeStyle, WALK } from './game/model';
 import { Game, fmt, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
@@ -262,7 +262,7 @@ function GameView({ dm }: { dm: Demand }) {
           <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기">+</button>
           <i className="divider" aria-hidden="true" />
           <div className={`carousel ${fade}`} ref={carEl} onScroll={onCarScroll}>
-          {game.routes.map(r => <button key={r.id} data-rid={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.from}에서 ${r.to}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => setSel(focusId === r.id ? null : { kind: 'route', id: r.id })}>
+          {game.routes.map(r => <button key={r.id} data-rid={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.type === 'circ' ? `${routeName(r)} 순환` : `${r.from}에서 ${r.to}`}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => setSel(focusId === r.id ? null : { kind: 'route', id: r.id })}>
             <span className="n" style={{ background: r.color, color: r.tx }}>{r.num}</span>
             <span className="m"><span><Icon n="bus" s={13} />{r.buses}</span><span><Icon n="clock" s={13} />{fmtHw(r.headway)}′</span></span></button>)}
           </div>
@@ -367,7 +367,7 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClo
   const crowd = r.bus.length ? r.bus.reduce((a, b) => a + b.on, 0) / r.bus.length / BUS_CAP : 0;   // 지금 버스들 평균 탑승률
   const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); updateRoute(dm, r, r.stops, n); onChange(); };
   return <>
-    <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{r.from}↔{r.to}</b>
+    <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{r.type === 'circ' && <Icon n="circ" s={14} label="순환" />}{routeName(r)}</b>
       <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={16} /></button></div>
     <div className="pr"><button className="pb" aria-label="버스 빼기" disabled={r.buses <= 1} onClick={() => setN(r.buses - 1)}>−</button>
       <b className="ps" aria-label={`투입 버스 ${r.buses}대`}><Icon n="bus" s={14} />{r.buses}</b>
