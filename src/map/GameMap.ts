@@ -3,7 +3,7 @@ import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
 import { type Demand, stopable } from '../game/data';
-import { type Route, posAt, crowdAt, WALK } from '../game/model';
+import { type Route, posAt, WALK, BUS_CAP } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
 
 export type Layer = 'o' | 'd' | 'u';
@@ -126,7 +126,7 @@ export class GameMap {
     m.addLayer({ id: 'bus-sq', type: 'symbol', source: 'buses', maxzoom: 12.5, layout: { 'icon-image': 'bus-sq', 'icon-allow-overlap': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.7, 12, 1] }, paint: { 'icon-opacity': ['case', ['get', 'dim'], 0.3, 1] } });
     m.addLayer({ id: 'bus-plate', type: 'symbol', source: 'buses', minzoom: 12.5, layout: { 'icon-image': ['concat', 'plate-', ['get', 'rid']], 'icon-allow-overlap': true }, paint: { 'icon-opacity': ['case', ['get', 'dim'], 0.3, 1] } });
     m.addLayer({ id: 'bus-pax', type: 'symbol', source: 'buses', minzoom: 12.5, filter: ['>', ['get', 'pax'], 0],
-      layout: { 'text-field': ['concat', '+', ['to-string', ['get', 'pax']]], 'text-font': ['Open Sans Semibold'], 'text-size': 11, 'text-offset': [0, -1.7], 'text-allow-overlap': true },
+      layout: { 'text-field': ['to-string', ['get', 'pax']], 'text-font': ['Open Sans Semibold'], 'text-size': 11, 'text-offset': [0, -1.7], 'text-allow-overlap': true },
       paint: { 'text-color': INK, 'text-halo-color': '#FFFFFF', 'text-halo-width': 3 } });
     m.addLayer({ id: 'bus-warn', type: 'symbol', source: 'buses', filter: ['>', ['get', 'crowd'], 1], layout: { 'icon-image': 'warn', 'icon-allow-overlap': true, 'icon-offset': [16, -10], 'icon-size': ['step', ['zoom'], 0.75, 12.5, 1] } });
     // 노선 번호 배지: 줌아웃에서만(줌인하면 버스 번호판이 대신), 버스보다 위
@@ -281,8 +281,8 @@ export class GameMap {
   setBuses(routes: Route[], bin: number, focus: number | null) {
     const f: GeoJSON.Feature[] = [], lo = this.map.getZoom() < LO_Z;
     for (const r of routes) {
-      const crowd = crowdAt(this.dm, r, bin), dim = focus != null && focus !== r.id;
-      for (const b of r.bus) f.push({ type: 'Feature', properties: { rid: r.id, pax: b.wait > 0 ? b.pax : 0, crowd, dim }, geometry: { type: 'Point', coordinates: lo ? this.loAt(r, b.s) : posAt(r, b.s) } });
+      const dim = focus != null && focus !== r.id; void bin;
+      for (const b of r.bus) f.push({ type: 'Feature', properties: { rid: r.id, pax: b.on, crowd: b.full ? 2 : b.on / BUS_CAP, dim }, geometry: { type: 'Point', coordinates: lo ? this.loAt(r, b.s) : posAt(r, b.s) } });
     }
     (this.map.getSource('buses') as GeoJSONSource).setData(fc(f));
   }

@@ -6,7 +6,7 @@ import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH } from './game/seeds';
-import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt, WALK } from './game/model';
+import { type Route, type RouteType, TYPES, RULES, BUS_CAP, makeRoute, updateRoute, evalRoute, routePath, routeStyle, WALK } from './game/model';
 import { Game, fmt, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
@@ -338,7 +338,7 @@ function Stepper({ n, min, max, onSet, free }: { n: number; min: number; max: nu
 function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClose, more, setMore }: { dm: Demand; game: Game; r: Route; bin: number; toast: (t: Toast) => void; onEdit: () => void; onDelete: () => void; onChange: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
   const [armed, setArmed] = useState(false);
   const free = game.fleet - game.usedBuses(r), demand = r.demand.reduce((a, b) => a + b, 0), carried = r.carried.reduce((a, b) => a + b, 0);
-  const crowd = crowdAt(dm, r, bin);
+  const crowd = r.bus.length ? r.bus.reduce((a, b) => a + b.on, 0) / r.bus.length / BUS_CAP : 0;   // 지금 버스들 평균 탑승률
   const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); updateRoute(dm, r, r.stops, n); onChange(); };
   return <>
     <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{r.from}↔{r.to}</b>
@@ -347,12 +347,12 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClo
       <b className="ps" aria-label={`투입 버스 ${r.buses}대`}><Icon n="bus" s={14} />{r.buses}</b>
       <button className="pb" aria-label="버스 더 넣기" disabled={r.buses >= free} onClick={() => setN(r.buses + 1)}>+</button>
       <span className="ps" aria-label="배차간격"><Icon n="clock" s={14} />{fmtHw(r.headway)}′</span></div>
-    <div className="pr small"><span className="ps" aria-label="하루 수송"><Icon n="person" s={13} />{fmt(carried)}</span>
-      <span className={`ps ${crowd > 1 ? 'bad' : ''}`} aria-label={`지금 혼잡도 ${Math.round(crowd * 100)}%`}>{crowd > 1 && <Icon n="warn" s={13} label="정원 초과" />}<Icon n="cap" s={13} />{Math.round(crowd * 100)}%</span></div>
+    <div className="pr small"><span className="ps" aria-label="오늘 탄 사람"><Icon n="person" s={13} />{fmt(r.today ?? 0)}</span>
+      <span className={`ps ${r.bus.some(b => b.full) ? 'bad' : ''}`} aria-label={`지금 버스 평균 탑승률 ${Math.round(crowd * 100)}%`}>{r.bus.some(b => b.full) && <Icon n="warn" s={13} label="만차로 못 탄 사람 있음" />}<Icon n="cap" s={13} />{Math.round(crowd * 100)}%</span></div>
     {more && <>
       <div className="sub"><Icon n={r.type} s={13} label={TYPES[r.type]} /> <Icon n="stop" s={12} label="정류장" />{r.stops.length} · <Icon n="bus" s={12} label="남은 버스" />{free - r.buses}{r.example && <span className="ex">EX</span>}</div>
       <div className="quick"><Stat i="loop" v={`${Math.round(r.cyc)}′`} label="한 바퀴" /><Stat i="ruler" v={`${r.lenKm.toFixed(1)}km`} label="노선 길이 (편도)" /><Stat i="cap" v={`${fmt(r.capH)}/h`} label="시간당 정원" /></div>
-      <div className="quick"><Stat i="miss" v={fmt(demand - carried)} label="하루 놓침" warn={demand - carried > 1} /></div>
+      <div className="quick"><Stat i="person" v={`~${fmt(carried)}`} label="하루 수송 예상" /><Stat i="miss" v={`~${fmt(demand - carried)}`} label="하루 놓침 예상" warn={demand - carried > 1} /></div>
       <table className="segt"><thead><tr><th /><th><Icon n="person" s={12} label="수요" />/h</th><th><Icon n="cap" s={12} label="정원" />/h</th><th /></tr></thead><tbody>
         {dm.bins.map((b, i) => { const d = r.demand[i] / binHours(b); return <tr key={i} className={i === bin ? 'now' : ''}><td><Icon n={`b${i}`} s={13} label={b.name} /> {hh(b.from)}–{hh(b.to)}</td><td>{fmt(d)}</td><td>{fmt(r.capH)}</td><td>{d > r.capH ? <Icon n="warn" s={13} label="정원 초과" className="bad" /> : <Icon n="ok" s={13} label="여유" className="good" />}</td></tr>; })}
       </tbody></table>
@@ -408,7 +408,7 @@ function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Deman
         <button className="btn icon" onClick={onCancel} aria-label="취소"><Icon n="x" s={18} /></button>
         <button className="btn icon primary" disabled={draft.stops.length < 2 || !ok} onClick={onDone} aria-label={draft.editing ? '수정 완료' : '개설'}><Icon n="ok" s={20} /></button></div></div>
     <Stepper n={draft.buses} min={1} max={free} free={free - draft.buses} onSet={n => setDraft({ ...draft, buses: n })} />
-    <div className="quick"><Stat i="clock" v={ev ? `${fmtHw(ev.headway)}′` : '–'} label="배차간격" /><Stat i="loop" v={ev ? `${Math.round(ev.cyc)}′` : '–'} label="한 바퀴" /><Stat i="person" v={ev ? fmt(day) : '–'} label="하루 수송 예상" /></div>
+    <div className="quick"><Stat i="clock" v={ev ? `${fmtHw(ev.headway)}′` : '–'} label="배차간격" /><Stat i="loop" v={ev ? `${Math.round(ev.cyc)}′` : '–'} label="한 바퀴" /><Stat i="person" v={ev ? `~${fmt(day)}` : '–'} label="하루 수송 예상" /></div>
     {!draft.editing && <div className="seg" role="group" aria-label="노선 종류">{(Object.keys(TYPES) as RouteType[]).map(k => <button key={k} aria-pressed={draft.type === k} aria-label={TYPES[k]} onClick={() => setDraft({ ...draft, type: k })}><Icon n={k} s={20} /></button>)}</div>}
   </>;
 }

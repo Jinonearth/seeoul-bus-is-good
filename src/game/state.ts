@@ -1,6 +1,6 @@
 // 회사 상태와 시간 흐름: 하루 수송 목표, 05시 정산, 증차, 게임 오버
 import { type Demand, NB, binOf, binHours } from './data';
-import { type Route, type Tally, RULES, moveBus } from './model';
+import { type Route, type Bus, RULES, BUS_CAP, moveBus, destsOf } from './model';
 
 export const COHORT = 30;   // 기다리는 사람은 30분마다 한 무리씩 생기고, 두 무리(1시간) 지나면 다른 교통수단으로 떠나요
 // 기다리는 사람으로 치는 출발 수요 비율. 전체 대중교통 출발을 다 넣으면 버스가 태워 가도 망점이 3%쯤밖에 안 줄어서,
@@ -56,11 +56,8 @@ export class Game {
   advance(gm: number) {
     if (this.over || gm <= 0) return;
     const before = this.min; this.min += gm;
-    const bin = this.bin, t: Tally = { rode: 0, missed: 0, board: [] };
-    for (const r of this.routes) for (const b of r.bus) moveBus(this.dm, r, b, gm, bin, t);
-    this.todayRiders += t.rode; this.todayMissed += t.missed;
     this.stepCohorts(before);
-    for (const [r, i, n] of t.board) this.drainPool(r, i, n);
+    for (const r of this.routes) for (const b of r.bus) moveBus(r, b, gm, this.serve);
     const S = RULES.settleMin;
     if (Math.floor((this.min - S) / 1440) > Math.floor((before - S) / 1440)) this.settle();
   }
@@ -69,7 +66,7 @@ export class Game {
     const got = this.todayRiders, t = this.target, d = this.day - 1;
     // 어제 정산에서 늘어난 버스는 오늘 정산이 끝난 뒤부터 목표에 반영 (새 목표는 하루 뒤부터)
     if (this.pendingFleet != null) { this.goalFleet = this.pendingFleet; this.pendingFleet = null; }
-    this.todayRiders = 0; this.todayMissed = 0;
+    this.todayRiders = 0; this.todayMissed = 0; for (const r of this.routes) r.today = 0;
     if (got < t) {
       this.miss++; this.hit = 0;
       if (this.miss >= RULES.maxMiss) { this.over = true; this.onOver(); return; }
@@ -102,6 +99,7 @@ export class Game {
       const covered = this.coveredCells(), O = this.old;
       for (let i = 0; i < O.length; i++) if (covered[i]) this.todayMissed += O[i];
       this.old = this.young; this.young = this.cohortAt(h * COHORT);
+      for (const r of this.routes) if (r.claim) { r.claim.old = r.claim.young; r.claim.young = this.claimOf(r, this.young, binOf(this.dm, (h * COHORT) % 1440)); }
     }
     const P = this.pool; for (let i = 0; i < P.length; i++) P[i] = this.old[i] + this.young[i];
   }
@@ -118,6 +116,49 @@ export class Game {
     }
     const P = this.pool; for (const i of c.cells) P[i] = this.old[i] + this.young[i];
   }
+  // ── 노선 손님 ──
+  // 자리 k(정류장 i, 방향)의 시간대 b 하루 통행 T = Σ_j pair[b][i][j] (이 방향 뒤쪽 정류장 j), 걸어오는 출발 수요 합 E = catch[i].E[b].
+  // 이 노선 몫 f = T / E. 기다리는 사람은 출발의 POOL_SHARE만 모이니, 새 무리 중 이 자리 손님 = min(1, f / POOL_SHARE) × Σ(걷기 가중 × 셀의 새 무리).
+  // 노선마다 자리별로 이 손님도 30분 무리 둘로 들고 있다가(1시간 지나면 떠남) 버스가 오면 태워요.
+  private shareOf(r: Route, k: number, bin: number) {
+    const n = r.stops.length, i = r.visits[k].i, E = r.catch[i]?.E[bin] ?? 0, base = bin * n * n + i * n;
+    let T = 0; for (const [j] of destsOf(r, k)) T += r.pair[base + j];
+    return E > 0 ? Math.min(1, T / E / POOL_SHARE) : 0;
+  }
+  private claimOf(r: Route, cohort: Float64Array, bin: number) {
+    const out = new Float64Array(r.visits.length);
+    r.visits.forEach((q, k) => { const c = r.catch[q.i]; if (!c) return; let w = 0; for (let x = 0; x < c.cells.length; x++) w += cohort[c.cells[x]] * c.walk[x]; out[k] = this.shareOf(r, k, bin) * w; });
+    return out;
+  }
+
+  // ── 버스가 정류장에 설 때: 내릴 사람 다 내리고, 이 자리 손님을 빈자리만큼 (명 단위) ──
+  // 탈 사람 = min(⌊min(이 자리 손님, 걸어오는 셀에 실제로 기다리는 사람)⌋, 75 − 탄 사람). 다른 노선이 같은 셀에서 먼저 태워 가면 줄어요.
+  // 내릴 곳은 pair 비율대로(큰 나머지 순). 손님과 셀의 기다리는 사람에서 오래된 무리부터 빼요. 못 탄 사람은 1시간 지나면 떠나요(놓침).
+  private serve = (r: Route, b: Bus, k: number) => {
+    const off = b.load[k]; b.load[k] = 0; b.on -= off;
+    if (!r.claim || r.claim.old.length !== r.visits.length) r.claim = { old: this.claimOf(r, this.old, this.bin), young: this.claimOf(r, this.young, this.bin) };
+    const n = r.stops.length, i = r.visits[k].i, bin = this.bin, c = r.catch[i], cl = r.claim;
+    let on = 0; b.full = false;
+    if (c) {
+      let w = 0; for (let x = 0; x < c.cells.length; x++) w += this.pool[c.cells[x]] * c.walk[x];
+      const want = Math.min(cl.old[k] + cl.young[k], w), room = BUS_CAP - b.on;
+      on = Math.max(0, Math.min(Math.floor(want), room));
+      b.full = b.on + on >= BUS_CAP && want - on >= 1;
+      if (on > 0) {
+        const dests = destsOf(r, k), base = bin * n * n + i * n;
+        let T = 0; for (const [j] of dests) T += r.pair[base + j];
+        const parts = dests.map(([j, kk]) => { const x = T > 0 ? on * r.pair[base + j] / T : on / dests.length; return [kk, Math.floor(x), x - Math.floor(x)]; });
+        let left = on - parts.reduce((a, p) => a + p[1], 0);
+        parts.sort((a, b2) => b2[2] - a[2]);
+        for (const p of parts) { b.load[p[0]] += p[1] + (left > 0 ? 1 : 0); if (left > 0) left--; }
+        b.on += on; this.todayRiders += on; r.today = (r.today ?? 0) + on;
+        const t1 = Math.min(cl.old[k], on); cl.old[k] -= t1; cl.young[k] = Math.max(0, cl.young[k] - (on - t1));
+        this.drainPool(r, i, on);
+      }
+    }
+    return off + on;
+  };
+
   // 지금 기다리는 사람 ÷ 지금 1시간치 (버스가 없으면 1 근처, 작을수록 버스가 많이 태워 감)
   poolRatio(i: number) { const e = this.poolEq(i); return e > 0 ? this.pool[i] / e : 1; }
 

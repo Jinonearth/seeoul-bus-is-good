@@ -22,7 +22,7 @@ export const DWELL_PER = 0.03;     // 1명 타고 내릴 때마다 약 2초
 export const DWELL_EST = 0.4;      // 한 바퀴 시간 계산용 정류장당 평균 정차(분)
 export const BUS_CAP = 75;
 export const CAP_H = BUS_CAP * 3 * 2;   // 버스 한 대 한 시간 정원 = 75인승 × 구간 회전 3 × 양방향
-export const CAPTURE = 0.23;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
+export const CAPTURE = 0.25;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
 export const MIN_GAP = 2;               // 이보다 가까운 정류장 사이(헥사곤 칸 수)는 걸어감
 
 // ── 노선 표기 (색약 고려: 색 + 패턴) ──
@@ -44,12 +44,16 @@ export type Eval = {
   lenKm: number; cyc: number; buses: number; headway: number;
   demand: number[]; carried: number[]; capH: number; stopShare: number[];
   broken: boolean;   // 도로로 못 이은 구간이 있어요(직선)
-  catch: { cells: number[]; walk: number[] }[];   // 정류장마다 걸어오는 셀(dm.cells 번호)과 걷는 거리 가중
+  catch: { cells: number[]; walk: number[]; E: number[] }[];   // 정류장마다 걸어오는 셀(dm.cells 번호), 걷는 거리 가중, 시간대별 걸어오는 출발 수요 합(가중)
+  pair: Float64Array;   // [시간대][출발 정류장][도착 정류장] 이 노선이 실어 나를 하루 통행 (evalRoute 예상)
 };
-export type Bus = { s: number; k: number; wait: number; pax: number };
+// 버스: 고리 위 위치 s, 다음에 설 자리 k, 정차 남은 시간, 탄 사람(내릴 자리별 명수), 만차로 사람을 남겼는지
+export type Bus = { s: number; k: number; wait: number; load: Int32Array; on: number; full: boolean; pax: number };
 export type Route = Eval & {
   id: number; num: string; type: RouteType; color: string; tx: string; pattern: number;
   from: string; to: string; bus: Bus[]; example?: boolean;
+  today?: number;   // 오늘 이 노선에 탄 사람
+  claim?: { old: Float64Array; young: Float64Array };   // 자리별 이 노선 손님 (30분 무리 둘, state.ts)
 };
 
 const hav = (a: [number, number], b: [number, number]) => {
@@ -105,11 +109,12 @@ const ringsOf = (s: string) => rings.get(s) ?? rings.set(s, gridDiskDistances(s,
 function catchments(dm: Demand, stops: string[]) {
   const best = new Map<string, [number, number]>();   // 셀 → [정류장 번호, 거리]
   stops.forEach((s, i) => ringsOf(s).forEach((ring, k) => { for (const id of ring) { const b = best.get(id); if (!b || k < b[1]) best.set(id, [i, k]); } }));
-  const C = stops.map(() => ({ O: new Map<number, number[]>(), D: new Map<number, number[]>(), cells: [] as number[], walk: [] as number[] }));
+  const C = stops.map(() => ({ O: new Map<number, number[]>(), D: new Map<number, number[]>(), cells: [] as number[], walk: [] as number[], E: Array(NB).fill(0) as number[] }));
   for (const [id, [i, k]] of best) {
     const c = dm.byId.get(id); if (!c) continue;
     const { O, D } = C[i], w = WALK[k];
     C[i].cells.push(c.i); C[i].walk.push(w);
+    for (let b = 0; b < NB; b++) C[i].E[b] += w * c.O[b];
     const o = O.get(c.dong) ?? O.set(c.dong, Array(NB).fill(0)).get(c.dong)!;
     const d = D.get(c.dong) ?? D.set(c.dong, Array(NB).fill(0)).get(c.dong)!;
     const sh = dm.dongShare[c.dong];
@@ -125,22 +130,23 @@ export function evalRoute(dm: Demand, stops: string[], buses: number, type: Rout
   const geo = routePath(stops);
   const nb = Math.max(1, buses), cyc = cycleOf(geo.lenKm, stops.length), headway = cyc / nb;
   const C = catchments(dm, stops);
-  const demand = Array(NB).fill(0), w = stops.map(() => 0);
+  const n = stops.length, demand = Array(NB).fill(0), w = stops.map(() => 0), pair = new Float64Array(NB * n * n);
   for (let i = 0; i < stops.length; i++) for (let j = 0; j < stops.length; j++) {
     if (i === j || stops[i] === stops[j]) continue;
     let gap = 99; try { gap = gridDistance(stops[i], stops[j]); } catch { /* 먼 셀 */ }
     if (gap < MIN_GAP) continue;
     for (const [A, o] of C[i].O) for (const [Cd, d] of C[j].D) {
-      const n = dm.od.get(key(A, Cd)); if (!n) continue;
-      for (let b = 0; b < NB; b++) { const t = n * o[b] * d[b]; demand[b] += t; w[i] += t; w[j] += t; }
+      const nAC = dm.od.get(key(A, Cd)); if (!nAC) continue;
+      for (let b = 0; b < NB; b++) { const t = nAC * o[b] * d[b]; demand[b] += t; w[i] += t; w[j] += t; pair[(b * n + i) * n + j] += t; }
     }
   }
   const f = CAPTURE * freqFactor(headway) * (type === 'circ' ? 0.9 : 1);
   for (let b = 0; b < NB; b++) demand[b] *= f;
+  for (let x = 0; x < pair.length; x++) pair[x] *= f;
   const capH = 60 / headway * CAP_H;
   const carried = demand.map((v, b) => Math.min(v, capH * binHours(dm.bins[b])));
   const W = w.reduce((a, b) => a + b, 0) || 1;
-  return { stops, ...geo, cyc, buses: nb, headway, demand, carried, capH, stopShare: w.map(x => x / W), catch: C.map(c => ({ cells: c.cells, walk: c.walk })) };
+  return { stops, ...geo, cyc, buses: nb, headway, demand, carried, capH, stopShare: w.map(x => x / W), catch: C.map(c => ({ cells: c.cells, walk: c.walk, E: c.E })), pair };
 }
 
 const serial: Record<string, number> = {};
@@ -162,6 +168,7 @@ export function makeRoute(dm: Demand, type: RouteType, stops: string[], buses: n
   resetBuses(r); return r;
 }
 export function updateRoute(dm: Demand, r: Route, stops: string[], buses: number) {
+  r.claim = undefined;
   Object.assign(r, evalRoute(dm, stops, buses, r.type), { from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]) });
   resetBuses(r);
 }
@@ -170,23 +177,13 @@ function resetBuses(r: Route) {
   const L = 2 * r.lenKm;
   r.bus = Array.from({ length: r.buses }, (_, n) => {
     const s = n / r.buses * L; let k = r.visits.findIndex(q => q.s >= s); if (k < 0) k = 0;
-    return { s, k, wait: 0, pax: 0 };
+    return { s, k, wait: 0, load: new Int32Array(r.visits.length), on: 0, full: false, pax: 0 };
   });
 }
 
-// 버스 한 대가 이 정류장에서 태우고 내리는 사람 (지난 버스 이후 쌓인 수요)
-// 가운데 정류장은 양방향으로 배차간격의 절반마다, 종점은 배차간격마다 버스가 와요
-// stopShare는 통행 하나를 타는 곳과 내리는 곳에서 두 번 세므로, 통행 수는 그 절반
-export function boardAt(dm: Demand, r: Route, i: number, bin: number) {
-  const perMin = r.demand[bin] / (binHours(dm.bins[bin]) * 60);
-  const end = i === 0 || i === r.stops.length - 1;
-  const raw = perMin * r.headway * r.stopShare[i] * (end ? 2 : 1);
-  const on = Math.min(BUS_CAP, raw);
-  return { n: Math.round(on), rode: on / 2, missed: (raw - on) / 2 };
-}
-// 이번 걸음에 들른 정류장에서 태운/못 태운 통행을 tally에 더해요
-export type Tally = { rode: number; missed: number; board: [Route, number, number][] };   // board: [노선, 정류장, 태운 통행]
-export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number, tally?: Tally) {
+// 정류장에 설 때마다 serve(노선, 버스, 자리 번호)가 내리고 타는 사람을 처리하고 그 합(명)을 돌려줘요. 정차 = 15초 + 1명당 약 2초
+export type Serve = (r: Route, b: Bus, k: number) => number;
+export function moveBus(r: Route, b: Bus, gm: number, serve: Serve) {
   const L2 = 2 * r.lenKm; let left = gm;
   const seq = r.visits;
   if (L2 <= 0 || !seq.length) return;
@@ -196,9 +193,16 @@ export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number, t
     const step = SPEED * left;
     if (step < dist) { b.s = (b.s + step) % L2; return; }
     b.s = q.s; left -= dist / SPEED;
-    const v = boardAt(dm, r, q.i, bin); b.pax = v.n; b.wait = DWELL0 + DWELL_PER * v.n; b.k = (b.k + 1) % seq.length;
-    if (tally) { tally.rode += v.rode; tally.missed += v.missed; if (v.rode > 0) tally.board.push([r, q.i, v.rode]); }
+    const moved = serve(r, b, b.k); b.pax = moved; b.wait = DWELL0 + DWELL_PER * moved; b.k = (b.k + 1) % seq.length;
   }
+}
+// 자리 k(고리에서 k번째로 서는 곳)에서 타는 사람이 갈 수 있는 정류장들과 그 자리 번호
+// 가는 길(k < n-1): 뒤쪽 정류장 j > i, 내릴 자리 = j. 오는 길(k ≥ n-1): 앞쪽 j < i, 내릴 자리 = (2n-2-j) % 자리 수
+export function destsOf(r: Route, k: number): [number, number][] {
+  const n = r.stops.length, len = r.visits.length, i = r.visits[k].i, out: [number, number][] = [];
+  if (k < n - 1) for (let j = i + 1; j < n; j++) out.push([j, j]);
+  else for (let j = i - 1; j >= 0; j--) out.push([j, (2 * n - 2 - j) % len]);
+  return out;
 }
 // 고리 위 거리 s → 좌표
 export function posAt(r: Route, s: number): [number, number] {
