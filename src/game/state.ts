@@ -2,7 +2,7 @@
 import { type Demand, NB, binOf, binHours } from './data';
 import { type Route, type Tally, RULES, moveBus } from './model';
 
-export const POOL_T = 30;   // 기다리다 포기하는 시간(게임 분)
+export const COHORT = 30;   // 기다리는 사람은 30분마다 한 무리씩 생기고, 두 무리(1시간) 지나면 다른 교통수단으로 떠나요
 // 기다리는 사람으로 치는 출발 수요 비율. 전체 대중교통 출발을 다 넣으면 버스가 태워 가도 망점이 3%쯤밖에 안 줄어서,
 // 노선 하나가 실제로 태울 만한 몫(약 10%)만 세요
 export let POOL_SHARE = 0.1;
@@ -31,7 +31,7 @@ export class Game {
   onSettle: (s: Settle) => void = () => {};
   onOver: () => void = () => {};
 
-  constructor(dm: Demand) { this.dm = dm; this.pool = new Float64Array(dm.cells.length); }
+  constructor(dm: Demand) { const n = dm.cells.length; this.dm = dm; this.pool = new Float64Array(n); this.old = new Float64Array(n); this.young = new Float64Array(n); }
 
   get target() { return this.goalFleet * RULES.perBus; }
   get day() { return Math.floor((this.min - RULES.settleMin) / 1440) + 1; }
@@ -59,7 +59,7 @@ export class Game {
     const bin = this.bin, t: Tally = { rode: 0, missed: 0, board: [] };
     for (const r of this.routes) for (const b of r.bus) moveBus(this.dm, r, b, gm, bin, t);
     this.todayRiders += t.rode; this.todayMissed += t.missed;
-    this.fillPool(gm, bin);
+    this.stepCohorts(before);
     for (const [r, i, n] of t.board) this.drainPool(r, i, n);
     const S = RULES.settleMin;
     if (Math.floor((this.min - S) / 1440) > Math.floor((before - S) / 1440)) this.settle();
@@ -82,30 +82,43 @@ export class Game {
     this.onSettle({ day: d, got, target: t, ok: true, miss: 0, hit: this.hit, grow });
   }
 
-  // ── 기다리는 사람 (셀마다) ──
-  // 출발 수요만큼 쌓이고, 오래 기다리면 포기해서 POOL_T분마다 e분의 1로 줄어요.
-  // 버스가 없으면 '시간당 출발 × POOL_T'에 머물러서, 망점 크기 = 지금 기다리는 사람 ÷ 그 값.
-  // 버스가 태우면 그 정류장으로 걸어오는 셀들에서 빠져요.
-  pool: Float64Array;
-  private poolBin = -1;
+  // ── 기다리는 사람 (셀마다, 30분 무리 둘) ──
+  // :00과 :30마다 그 30분 동안의 출발 수요(그때 시간대 비율 × POOL_SHARE)가 새 무리로 생기고,
+  // 1시간 된 무리는 다른 교통수단으로 떠나요. 노선이 닿는 셀에서 떠난 사람은 그날 놓침.
+  // 버스가 태우면 그 정류장으로 걸어오는 셀들에서, 오래 기다린 무리부터 빠져요. 망점 = 두 무리 합 ÷ 지금 1시간 수요.
+  pool: Float64Array;                 // 두 무리 합 (지도 망점용)
+  private old: Float64Array;          // 30~60분 된 무리
+  private young: Float64Array;        // 0~30분 된 무리
+  private seeded = false;
   rate(i: number, bin = this.bin) { return this.dm.cells[i].O[bin] * POOL_SHARE / (binHours(this.dm.bins[bin]) * 60); }   // 분당
-  poolEq(i: number, bin = this.bin) { return this.rate(i, bin) * POOL_T; }
-  private fillPool(gm: number, bin: number) {
-    const P = this.pool, n = P.length;
-    if (this.poolBin < 0) for (let i = 0; i < n; i++) P[i] = this.poolEq(i, bin);
-    this.poolBin = bin;
-    const f = Math.exp(-gm / POOL_T);
-    for (let i = 0; i < n; i++) P[i] = P[i] * f + this.poolEq(i, bin) * (1 - f);
+  poolEq(i: number, bin = this.bin) { return this.rate(i, bin) * 60; }   // 지금 시간대 1시간치
+  private cohortAt(m: number) { const b = binOf(this.dm, ((m % 1440) + 1440) % 1440), n = this.pool.length, a = new Float64Array(n); for (let i = 0; i < n; i++) a[i] = this.rate(i, b) * COHORT; return a; }
+  private stepCohorts(before: number) {
+    if (!this.seeded) {   // 시작하면 지난 1시간이 있었던 것처럼
+      const h = Math.floor(before / COHORT) * COHORT;
+      this.old = this.cohortAt(h - COHORT); this.young = this.cohortAt(h); this.seeded = true;
+    }
+    for (let h = Math.floor(before / COHORT) + 1; h <= Math.floor(this.min / COHORT); h++) {
+      const covered = this.coveredCells(), O = this.old;
+      for (let i = 0; i < O.length; i++) if (covered[i]) this.todayMissed += O[i];
+      this.old = this.young; this.young = this.cohortAt(h * COHORT);
+    }
+    const P = this.pool; for (let i = 0; i < P.length; i++) P[i] = this.old[i] + this.young[i];
   }
+  private coveredCells() { const c = new Uint8Array(this.pool.length); for (const r of this.routes) for (const k of r.catch) for (const i of k.cells) c[i] = 1; return c; }
   private drainPool(r: Route, stop: number, n: number) {
     const c = r.catch[stop]; if (!c) return;
-    const P = this.pool; let tot = 0;
-    for (let k = 0; k < c.cells.length; k++) tot += P[c.cells[k]] * c.walk[k];
-    if (tot <= 0) return;
-    const take = Math.min(1, n / tot);
-    for (let k = 0; k < c.cells.length; k++) P[c.cells[k]] -= P[c.cells[k]] * c.walk[k] * take;
+    for (const A of [this.old, this.young]) {   // 오래 기다린 무리부터
+      let tot = 0;
+      for (let k = 0; k < c.cells.length; k++) tot += A[c.cells[k]] * c.walk[k];
+      if (tot <= 0) continue;
+      const take = Math.min(1, n / tot);
+      for (let k = 0; k < c.cells.length; k++) A[c.cells[k]] -= A[c.cells[k]] * c.walk[k] * take;
+      n -= Math.min(n, tot); if (n <= 0) break;
+    }
+    const P = this.pool; for (const i of c.cells) P[i] = this.old[i] + this.young[i];
   }
-  // 지금 기다리는 사람 ÷ 버스 없을 때 머무는 값 (1 = 평소, 작을수록 버스가 많이 태워 감)
+  // 지금 기다리는 사람 ÷ 지금 1시간치 (버스가 없으면 1 근처, 작을수록 버스가 많이 태워 감)
   poolRatio(i: number) { const e = this.poolEq(i); return e > 0 ? this.pool[i] / e : 1; }
 
   // 하루 전체 수요(노선 합) 대비 지금까지 예상 수송
