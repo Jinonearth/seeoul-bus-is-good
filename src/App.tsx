@@ -10,6 +10,7 @@ import { GameMap, type Layer, type Flow, setCoverage } from './map/GameMap';
 type Sel = { kind: 'hex'; cell: string } | { kind: 'route'; id: number } | { kind: 'draft' } | null;
 type Draft = { stops: string[]; type: RouteType; buses: number; editing?: Route };
 const LAYER_NAME: Record<Layer, string> = { o: '출발 수요', d: '도착 수요', u: '버스가 닿지 않는 출발 수요' };
+const LAYER_SHORT: Record<Layer, string> = { o: '출발', d: '도착', u: '미충족' };
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 const fmtHw = (h: number) => (h < 10 ? h.toFixed(1) : String(Math.round(h)));
 
@@ -168,12 +169,9 @@ function GameView({ dm }: { dm: Demand }) {
 
       <div className="toasts">{toasts.map(x => <div key={x.id} className={`toast ${x.kind ?? ''}`}>{x.text}</div>)}</div>
 
-      <button className="box" id="legend" onClick={() => setLayer(l => (l === 'o' ? 'd' : l === 'd' ? 'u' : 'o'))} aria-label="수요 레이어 바꾸기">
-        <div className="lt">{LAYER_NAME[layer]} · 지금 시간대</div>
-        <svg viewBox="0 0 320 60" aria-hidden="true"><g fill="none" stroke="#1D1D1B" strokeOpacity="0.3">{[32, 96, 160, 224, 288].map(x => <path key={x} d={`M${x} 6 L${x + 22} 18 L${x + 22} 42 L${x} 54 L${x - 22} 42 L${x - 22} 18 Z`} />)}</g>
-          <g fill="#FF48B0">{[4, 8, 12, 16, 20].map((r, i) => <circle key={r} cx={32 + i * 64} cy="30" r={r} />)}</g></svg>
-        <div className="ends"><span>적음</span><span>많음</span></div>
-        <div className="tapme">탭해서 출발·도착·미충족 ▸</div>
+      {/* 수요 레이어 전환: 평소엔 한 줄 버튼만, 망점 크기 범례는 ? 설명에서 */}
+      <button className="box" id="legend" onClick={() => setLayer(l => (l === 'o' ? 'd' : l === 'd' ? 'u' : 'o'))} aria-label={`수요 레이어 바꾸기, 지금 ${LAYER_NAME[layer]}`}>
+        <i className="dot" aria-hidden="true" />{LAYER_SHORT[layer]} <span className="next">▸</span>
       </button>
       <div className="box" id="helpbox"><button className="zb" aria-pressed={help} aria-label="화면 설명" onClick={() => setHelp(h => !h)}>?</button></div>
       <div className="box" id="zoom">
@@ -184,10 +182,10 @@ function GameView({ dm }: { dm: Demand }) {
       <section className="box" id="sheet" data-state={sel?.kind === 'draft' ? 'draft' : sheet}>
         <button id="grab" aria-label="패널 펼치기·접기" onClick={() => setSheet(s => (s === 'open' ? 'peek' : 'open'))}><i /></button>
         <div id="routebar">
+          {!draft && <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기"><b>+</b>새 노선</button>}
           {game.routes.map(r => <button key={r.id} className="chip" aria-pressed={focusId === r.id} onClick={() => { setSel({ kind: 'route', id: r.id }); setSheet('open'); }}>
             <span className="n" style={{ background: r.color, color: r.tx }}>{r.num}</span>
             <span className="m"><small>{TYPES[r.type]} · {r.from}↔{r.to}</small><span>{r.buses}대 · {fmtHw(r.headway)}분</span></span></button>)}
-          {!draft && <button className="chip add" onClick={() => startDraft()}>+ 새 노선</button>}
         </div>
         <div id="panel">
           {sel?.kind === 'draft' && draft ? <DraftPanel dm={dm} game={game} draft={draft} ev={draftEval} setDraft={setDraft} onCancel={cancelDraft} onDone={finishDraft} />
@@ -202,6 +200,11 @@ function GameView({ dm }: { dm: Demand }) {
       {help && <div className="help" onClick={() => setHelp(false)}><div className="box">
         <h2>화면 설명</h2>
         <p><b>위:</b> 시각과 속도(정지·1배속·4배속), 운행 중인 버스 / 보유 버스. 아랫줄은 오늘 수송과 목표, 목표 페이스, 연속 미달 표시예요.</p>
+        <div className="legend-big"><div className="lt">{LAYER_NAME[layer]} · 지금 시간대</div>
+          <svg viewBox="0 0 320 60" aria-hidden="true"><g fill="none" stroke="#1D1D1B" strokeOpacity="0.3">{[32, 96, 160, 224, 288].map(x => <path key={x} d={`M${x} 6 L${x + 22} 18 L${x + 22} 42 L${x} 54 L${x - 22} 42 L${x - 22} 18 Z`} />)}</g>
+          <g fill="#FF48B0">{[4, 8, 12, 16, 20].map((r, i) => <circle key={r} cx={32 + i * 64} cy="30" r={r} />)}</g></svg>
+          <div className="ends"><span>적음</span><span>많음</span></div></div>
+        <p><b>수요 레이어:</b> 왼쪽 아래 버튼을 누를 때마다 출발 → 도착 → 미충족(버스가 닿지 않는 곳, 칸 전체가 옅은 핑크)으로 바뀌어요.</p>
         <p><b>지도:</b> 핑크 점이 클수록 지금 시간대 수요가 많아요. 헥사곤을 누르면 그 칸에서 가고 싶은 곳(파랑 실선)과 오고 싶은 곳(주황 점선)이 보여요.</p>
         <p><b>노선:</b> + 새 노선을 누르고 헥사곤을 하나씩 탭하면 그 칸마다 정류장이 생겨요. 투입할 버스 대수를 정하면 배차간격이 계산돼요.</p>
         <p><b>규칙:</b> 매일 05시 정산. 목표의 150%를 3일 연속 넘기면 버스 +10대, 3일 연속 목표를 못 채우면 게임 오버예요.</p>
