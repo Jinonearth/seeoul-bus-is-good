@@ -13,6 +13,31 @@ const HEX_RES = [7, 8, 9] as const;
 export const resForZoom = (z: number) => (z < 12 ? 7 : z < 13.5 ? 8 : 9);
 const ZRANGE: Record<number, [number, number]> = { 7: [0, 12], 8: [12, 13.5], 9: [13.5, 24] };
 const DOT = [0, 0.16, 0.32, 0.48, 0.64, 0.8];
+const LO_Z = 13, LO_TOL_M = 300;   // 이 줌 아래에선 노선을 단순한 선 하나로 (Douglas-Peucker 허용 거리)
+const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540;
+const mDist = (a: [number, number], b: [number, number]) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY) / 1000;
+function simplify(pts: [number, number][], tol: number): [number, number][] {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+  const st: [number, number][] = [[0, pts.length - 1]];
+  while (st.length) {
+    const [a, b] = st.pop()!, A = pts[a], B = pts[b];
+    const ax = A[0] * KX, ay = A[1] * KY, bx = B[0] * KX - ax, by = B[1] * KY - ay, L2 = bx * bx + by * by;
+    let best = -1, bi = -1;
+    for (let i = a + 1; i < b; i++) {
+      const px = pts[i][0] * KX - ax, py = pts[i][1] * KY - ay;
+      const t = L2 ? Math.max(0, Math.min(1, (px * bx + py * by) / L2)) : 0, d = Math.hypot(px - t * bx, py - t * by);
+      if (d > best) { best = d; bi = i; }
+    }
+    if (best > tol) { keep[bi] = 1; st.push([a, bi], [bi, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+function along(line: [number, number][], cum: number[], d: number): [number, number] {
+  let i = 1; while (i < line.length - 1 && cum[i] < d) i++;
+  const a = line[i - 1], b = line[i] ?? a, L = cum[i] - cum[i - 1], t = L > 0 ? Math.min(1, Math.max(0, (d - cum[i - 1]) / L)) : 0;
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
 
 let protocolAdded = false;
 
@@ -78,16 +103,18 @@ export class GameMap {
     // 노선: 먹 테두리 + 노선색 + 패턴(줌 11부터)
     m.addSource('routes', { type: 'geojson', data: fc() });
     const Wf = (f: (w: number) => number) => ['interpolate', ['linear'], ['zoom'], 9, f(4), 13, f(7), 15, f(9)] as never, W = Wf(w => w);
-    const op = ['case', ['get', 'dim'], 0.3, 1] as const;
+    // 줌 13 아래에서는 노선마다 단순한 선 하나(lo), 위에서는 실제 도로 길(가는 길 + 오는 길)
+    const dimOp = ['case', ['get', 'dim'], 0.3, 1];
+    const op = ['step', ['zoom'], ['case', ['get', 'lo'], dimOp, 0], LO_Z, ['case', ['get', 'lo'], 0, dimOp]] as const;
     m.addLayer({ id: 'route-case', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': INK, 'line-width': Wf(w => w + 5), 'line-opacity': op as never } });
     m.addLayer({ id: 'route', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': W, 'line-opacity': op as never } });
     m.addLayer({ id: 'route-p1', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 1], paint: { 'line-color': PAPER, 'line-width': W, 'line-dasharray': [1.3, 1.3], 'line-opacity': op as never } });
     m.addLayer({ id: 'route-p2', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 2], layout: { 'line-join': 'round' }, paint: { 'line-color': PAPER, 'line-width': Wf(w => w * 0.3), 'line-opacity': op as never } });
     m.addLayer({ id: 'route-p3', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 3], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#FFFFFF', 'line-width': Wf(w => w * 0.45), 'line-dasharray': [0.1, 2.2], 'line-opacity': op as never } });
-    m.addLayer({ id: 'route-hit', type: 'line', source: 'routes', paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
+    m.addLayer({ id: 'route-hit', type: 'line', source: 'routes', filter: ['!', ['get', 'lo']], paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
     m.addSource('stops', { type: 'geojson', data: fc() });
-    m.addLayer({ id: 'stops', type: 'circle', source: 'stops', minzoom: 11,
-      paint: { 'circle-color': '#FFFFFF', 'circle-stroke-color': INK, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3.5, 14, 6], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 3], 'circle-opacity': ['case', ['get', 'dim'], 0.3, 1], 'circle-stroke-opacity': ['case', ['get', 'dim'], 0.3, 1] } });
+    m.addLayer({ id: 'stops', type: 'circle', source: 'stops', minzoom: 12,
+      paint: { 'circle-color': '#FFFFFF', 'circle-stroke-color': INK, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3.5, 14, 6], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 3], 'circle-opacity': op as never, 'circle-stroke-opacity': op as never } });
     // 그리는 중인 노선
     m.addSource('draft', { type: 'geojson', data: fc() });
     m.addLayer({ id: 'draft-case', type: 'line', source: 'draft', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': INK, 'line-width': ['case', ['get', 'back'], 6, 11] } });
@@ -103,9 +130,9 @@ export class GameMap {
       paint: { 'text-color': INK, 'text-halo-color': '#FFFFFF', 'text-halo-width': 3 } });
     m.addLayer({ id: 'bus-warn', type: 'symbol', source: 'buses', filter: ['>', ['get', 'crowd'], 1], layout: { 'icon-image': 'warn', 'icon-allow-overlap': true, 'icon-offset': [16, -10], 'icon-size': ['step', ['zoom'], 0.75, 12.5, 1] } });
     // 노선 번호 배지: 줌아웃에서만(줌인하면 버스 번호판이 대신), 버스보다 위
-    m.addLayer({ id: 'route-badge', type: 'symbol', source: 'routes', maxzoom: 12.5,
+    m.addLayer({ id: 'route-badge', type: 'symbol', source: 'routes', maxzoom: 12.5, filter: ['get', 'lo'],
       layout: { 'symbol-placement': 'line', 'symbol-spacing': 260, 'text-field': ['get', 'num'], 'text-font': ['Open Sans Semibold'], 'text-size': 12, 'text-rotation-alignment': 'viewport', 'text-keep-upright': true },
-      paint: { 'text-color': INK, 'text-halo-color': '#FFFFFF', 'text-halo-width': 4, 'text-opacity': op as never } });
+      paint: { 'text-color': INK, 'text-halo-color': '#FFFFFF', 'text-halo-width': 4, 'text-opacity': dimOp as never } });
     for (const l of labelLayers) m.addLayer(l as never);
   }
 
@@ -202,13 +229,30 @@ export class GameMap {
   }
   private pxToDeg(px: number) { const z = this.map.getZoom(); return px * 360 / (512 * 2 ** z); }
 
+  // 줌아웃용 단순한 선: 가는 길 도로를 LO_TOL_M로 줄인 선 하나. 버스와 정류장은 가는 길 비율대로 그 위에
+  private lo = new Map<number, { line: [number, number][]; cum: number[]; out: number }>();
+  private loOf(r: Route) {
+    const out = r.path.slice(0, r.outN + 1), line = simplify(out, LO_TOL_M), cum = [0];
+    for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + mDist(line[i - 1], line[i]));
+    const v = { line, cum, out: r.cum[r.outN] || 1e-9 }; this.lo.set(r.id, v); return v;
+  }
+  private loAt(r: Route, s: number): [number, number] {
+    const v = this.lo.get(r.id) ?? this.loOf(r), L = r.cum[r.cum.length - 1] || 1, d = ((s % L) + L) % L;
+    const f = d <= v.out ? d / v.out : 1 - (d - v.out) / Math.max(1e-9, L - v.out);
+    return along(v.line, v.cum, f * v.cum[v.cum.length - 1]);
+  }
+
   setRoutes(routes: Route[], focus: number | null) {
     const lines: GeoJSON.Feature[] = [], stops: GeoJSON.Feature[] = [];
+    this.lo.clear();
     for (const r of routes) {
       this.plate(r);
-      const dim = focus != null && focus !== r.id;
-      lines.push({ type: 'Feature', properties: { id: r.id, num: r.num, color: r.color, pattern: r.pattern, dim }, geometry: { type: 'LineString', coordinates: r.path } });
-      for (const p of r.stopPts) stops.push({ type: 'Feature', properties: { dim }, geometry: { type: 'Point', coordinates: p } });
+      const dim = focus != null && focus !== r.id, props = { id: r.id, num: r.num, color: r.color, pattern: r.pattern, dim };
+      lines.push({ type: 'Feature', properties: { ...props, lo: false }, geometry: { type: 'LineString', coordinates: r.path } });
+      const v = this.loOf(r);
+      if (v.line.length > 1) lines.push({ type: 'Feature', properties: { ...props, lo: true }, geometry: { type: 'LineString', coordinates: v.line } });
+      for (const p of r.stopPts) stops.push({ type: 'Feature', properties: { dim, lo: false }, geometry: { type: 'Point', coordinates: p } });
+      for (const q of r.visits) if (q.s <= v.out + 1e-9) stops.push({ type: 'Feature', properties: { dim, lo: true }, geometry: { type: 'Point', coordinates: this.loAt(r, q.s) } });
     }
     (this.map.getSource('routes') as GeoJSONSource).setData(fc(lines));
     (this.map.getSource('stops') as GeoJSONSource).setData(fc(stops));
@@ -228,10 +272,10 @@ export class GameMap {
   }
 
   setBuses(routes: Route[], bin: number, focus: number | null) {
-    const f: GeoJSON.Feature[] = [];
+    const f: GeoJSON.Feature[] = [], lo = this.map.getZoom() < LO_Z;
     for (const r of routes) {
       const crowd = crowdAt(this.dm, r, bin), dim = focus != null && focus !== r.id;
-      for (const b of r.bus) f.push({ type: 'Feature', properties: { rid: r.id, pax: b.wait > 0 ? b.pax : 0, crowd, dim }, geometry: { type: 'Point', coordinates: posAt(r, b.s) } });
+      for (const b of r.bus) f.push({ type: 'Feature', properties: { rid: r.id, pax: b.wait > 0 ? b.pax : 0, crowd, dim }, geometry: { type: 'Point', coordinates: lo ? this.loAt(r, b.s) : posAt(r, b.s) } });
     }
     (this.map.getSource('buses') as GeoJSONSource).setData(fc(f));
   }

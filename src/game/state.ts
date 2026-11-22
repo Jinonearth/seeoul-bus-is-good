@@ -14,7 +14,11 @@ export type Settle = { day: number; got: number; target: number; ok: boolean; mi
 export class Game {
   dm: Demand;
   min = RULES.startMin;           // 게임 시작부터 흐른 분 (0 = 1일차 0시). 1일차는 06시 시작, 정산은 05시라 조금 짧아요
-  speed = 1;                      // 0 정지, 1, 4
+  speed = 1;                      // 현실 1초에 흐르는 게임 분: 0 정지, 1, 5, 10
+  lastSpeed = 1;                  // 정지 뒤 다시 재생할 속도
+  static SPEEDS = [1, 5, 10];
+  pause() { if (this.speed) this.lastSpeed = this.speed; this.speed = 0; }
+  play() { if (!this.speed) { this.speed = this.lastSpeed; return; } const S = Game.SPEEDS; this.speed = this.lastSpeed = S[(S.indexOf(this.speed) + 1) % S.length]; }
   fleet = RULES.fleet0;           // 보유 버스
   goalFleet = RULES.fleet0;       // 오늘 목표를 정하는 버스 수 (증차는 하루 뒤 반영)
   pendingFleet: number | null = null;

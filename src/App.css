@@ -1,24 +1,43 @@
-/* 세로(모바일) 기준: 지도 전체 + 상단 HUD 두 줄 + 오른쪽 줌 + 아래 시트(노선 칩 + 상황 패널). 데스크톱에서는 폰 크기 프레임.
+/* 세로(모바일) 기준: 지도 전체 + 위 노선 막대 + 아래 상태 막대 + 지도 위 팝업. 데스크톱에서는 폰 크기 프레임.
    인쇄물 느낌: 각진 모서리, 굵은 먹 괘선 */
 .loading{height:100%;display:grid;place-items:center;font-size:15px;color:var(--muted)}
 #stage{height:100%;display:grid;place-items:center}
-#app{position:relative;width:min(430px,100%);height:min(932px,100%);overflow:hidden;background:var(--ground);user-select:none;-webkit-user-select:none;--sheet-h:150px}
+#app{position:relative;width:min(430px,100%);height:min(932px,100%);overflow:hidden;background:var(--ground);user-select:none;-webkit-user-select:none;--bar-h:96px;--top-h:60px}
 @media (min-width:520px) and (min-height:700px){#app{border:2px solid var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.35)}}
 #map{position:absolute;inset:0}
 #map.drawing .maplibregl-canvas{cursor:crosshair}
 .box{background:var(--paper);border:2px solid var(--ink)}
 .muted{color:var(--muted)}
 
-/* HUD */
-#hud{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));left:10px;right:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;z-index:2}
+/* 위: 노선 막대 */
+#topbar{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));left:8px;right:8px;padding:6px;z-index:3}
+#routebar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+#routebar::-webkit-scrollbar{display:none}
+/* 아래: 상태 막대 (그리는 중엔 노선 그리기 패널) */
+#bottom{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));padding:7px 9px;display:flex;flex-direction:column;gap:6px;z-index:3;max-height:62%}
+#bottom .panel{border-top:2px solid var(--ink);padding-top:9px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px;overscroll-behavior:contain}
+#bottom .panel:first-child{border-top:0;padding-top:0}
+#bottom .r2{cursor:pointer}
+.more{border:0;background:transparent;width:30px;height:34px;display:grid;place-items:center;cursor:pointer;color:var(--ink);flex:none}
+.more svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.more.wide{width:100%;height:28px;display:flex;justify-content:center;gap:4px;border:1.5px dashed var(--muted);color:var(--muted)}
+/* 지도 위 팝업 */
+.popup{position:absolute;z-index:4;width:min(360px,92%);padding:10px 12px;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(29,29,27,.25)}
+.popup .pbody{overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px;overscroll-behavior:contain;min-height:0}
+.popup h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:18px}
+.popup h3{margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
+.popup .tip{position:absolute;bottom:-9px;width:14px;height:14px;margin-left:-7px;background:var(--paper);border:2px solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.popup .tip[data-below="1"]{bottom:auto;top:-9px;border-width:2px 0 0 2px}
+.popup .head{gap:8px}
+.popup .badge{min-width:44px;height:30px;font-size:17px}
 .r1{display:flex;align-items:center;gap:8px}
 .when{display:flex;flex-direction:column;line-height:1.15;min-width:0}
 .clock{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
 .day{font-size:10.5px;color:var(--muted);white-space:nowrap}
 .seg-chip{display:inline-block;border:1.5px solid var(--ink);padding:0 5px;font-weight:800;color:var(--fg);margin-left:4px}
-.speed{display:flex;gap:3px;margin:0 auto;background:#fff;border:2px solid var(--ink);padding:3px}
-.speed button{width:42px;height:34px;display:grid;place-items:center;border:0;background:transparent;cursor:pointer;color:var(--muted);position:relative}
-.speed button svg{width:15px;height:15px;fill:currentColor}
+.speed{display:flex;gap:3px;margin:0 auto;background:#fff;border:2px solid var(--ink);padding:2px}
+.speed button{width:44px;height:32px;display:grid;place-items:center;border:0;background:transparent;cursor:pointer;color:var(--muted);position:relative}
+.speed button svg{width:18px;height:18px;fill:currentColor}
 .speed button small{position:absolute;bottom:1px;right:4px;font-size:8.5px}
 .speed button[aria-pressed="true"]{background:var(--accent);color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink)}
 .money{text-align:right;display:flex;flex-direction:column;line-height:1.15}
@@ -37,14 +56,14 @@
 .streak i.on{background:var(--bad)}
 
 /* 알림 */
-.toasts{position:absolute;top:calc(110px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;width:calc(100% - 40px);z-index:5;pointer-events:none}
+.toasts{position:absolute;top:calc(var(--top-h) + 16px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;width:calc(100% - 40px);z-index:5;pointer-events:none}
 .toast{padding:9px 12px;font-size:12.5px;background:var(--paper);border:2px solid var(--ink);box-shadow:0 6px 20px rgba(29,29,27,.15);animation:tin .25s ease-out}
 .toast.warn{border-color:var(--bad)}
 .toast.good{border-color:var(--good)}
 @keyframes tin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 
 /* 범례·줌·도움말 */
-#legend,#zoom,#helpbox{position:absolute;bottom:calc(var(--sheet-h) + 10px + env(safe-area-inset-bottom,0px));z-index:2;transition:bottom .25s ease}
+#legend,#zoom,#helpbox{position:absolute;bottom:calc(var(--bar-h) + 16px + env(safe-area-inset-bottom,0px));z-index:2}
 #legend{left:10px;padding:0 12px;height:44px;display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
 #legend .dot{width:12px;height:12px;border-radius:50%;background:var(--pink)}
 #legend .next{color:var(--muted);font-size:11px}
@@ -52,23 +71,12 @@
 .legend-big > svg{display:block;width:100%;height:auto;margin:5px 0 2px}
 .legend-big .ends{display:flex;justify-content:space-between;font-size:10px}
 #zoom{right:10px;display:flex;padding:2px;gap:2px}
-#helpbox{right:10px;bottom:calc(var(--sheet-h) + 66px + env(safe-area-inset-bottom,0px));padding:2px}
+#helpbox{right:10px;bottom:calc(var(--bar-h) + 72px + env(safe-area-inset-bottom,0px));padding:2px}
 .zb{width:44px;height:44px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;color:var(--fg);font-weight:800;font-size:18px}
 .zb svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
 .zb:active{background:#E4DFD1}
-#app[data-sheet="open"]{--sheet-h:42%}
-#app[data-sheet="draft"]{--sheet-h:260px}
-#app[data-sheet="open"] #legend,#app[data-sheet="open"] #zoom,#app[data-sheet="open"] #helpbox,#app[data-sheet="draft"] #legend{display:none}
 
-/* 아래 시트 */
-#sheet{position:absolute;left:0;right:0;bottom:0;height:calc(var(--sheet-h) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);border-width:2px 0 0;display:flex;flex-direction:column;transition:height .25s ease;z-index:3}
-#grab{flex:none;height:22px;border:0;background:transparent;cursor:pointer;display:grid;place-items:center}
-#grab i{width:40px;height:4px;background:var(--ink)}
-#routebar{flex:none;display:flex;gap:6px;padding:0 12px 8px;overflow-x:auto;scrollbar-width:none}
-#routebar::-webkit-scrollbar{display:none}
-#panel{flex:1;min-height:0;overflow:auto;padding:12px 14px 14px;display:flex;flex-direction:column;gap:12px;border-top:2px solid var(--ink);overscroll-behavior:contain;font-size:14px}
-#panel h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:19px}
-#panel h3{margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
+#bottom h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:18px}
 .sub{font-size:11.5px;color:var(--muted);margin-top:2px}
 .kv{display:grid;grid-template-columns:1fr auto;gap:7px 10px;margin:0}
 .kv dt{color:var(--muted)}
@@ -135,7 +143,7 @@
 .help p,.over p{margin:0;font-size:13.5px;line-height:1.55;color:var(--dim)}
 .over svg{width:36px;height:36px;stroke:var(--bad);fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
 .maplibregl-ctrl-attrib{font-size:10px}
-@media (prefers-reduced-motion:reduce){.toast{animation:none}#sheet,#legend,#zoom,#helpbox{transition:none}}
+@media (prefers-reduced-motion:reduce){.toast{animation:none}}
 
 /* ── 글자 대신 아이콘 ── */
 .ic{flex:none;vertical-align:-2px}
