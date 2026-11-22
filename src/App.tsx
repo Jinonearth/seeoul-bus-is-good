@@ -193,19 +193,24 @@ function GameView({ dm }: { dm: Demand }) {
     <div id="stage"><div id="app" ref={appEl} data-draw={draft ? '1' : undefined}>
       <div id="map" ref={mapEl} className={draft ? 'drawing' : ''} />
 
-      {/* 위: 노선 막대만 */}
+      {/* 위: 회사 상태 (수송·목표, 페이스, 연속 미달, 버스). 누르면 회사 현황 */}
       <header className="box" id="topbar">
-        <div id="routebar">
-          {!draft && <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기">+</button>}
-          {game.routes.map(r => <button key={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.from}에서 ${r.to}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => setSel(focusId === r.id ? null : { kind: 'route', id: r.id })}>
-            <span className="n" style={{ background: r.color, color: r.tx }}>{r.num}</span>
-            <span className="m"><span><Icon n="bus" s={13} />{r.buses}</span><span><Icon n="clock" s={13} />{fmtHw(r.headway)}′</span></span></button>)}
+        <div className="r2" onClick={() => setStats(x => !x)}>
+          <span className="got" aria-label={`오늘 수송 ${fmt(got)}명, 목표 ${fmt(t)}명`}><Icon n="person" s={14} /><b>{fmt(got)}</b><span className="muted">/{fmt(t)}</span></span>
+            <span className="satw">
+              <span className="meter goal" aria-hidden="true"><i style={{ width: `${Math.min(100, got / full * 100)}%` }} /><u style={{ left: `${Math.min(100, share / RULES.bonus * 100)}%` }} /><s /></span>
+              {got >= t * share ? <b className="pace ok"><Icon n="up" s={14} label="목표 페이스 넘김" /></b> : <b className="pace bad"><Icon n="down" s={14} label="목표 페이스 부족" /></b>}
+              <span className="streak" role="img" aria-label={`연속 미달 ${game.miss}일 (3일이면 게임 오버)`}>{Array.from({ length: RULES.maxMiss }, (_, i) => <i key={i} className={i < game.miss ? 'on' : ''} />)}</span>
+            </span>
+            <div className="money" aria-label={`운행 버스 ${game.usedBuses()}대, 보유 ${game.fleet}대`}><Icon n="bus" s={18} /><span className="v">{game.usedBuses()}<span className="muted">/{game.fleet}</span></span></div>
+            <button className="more" aria-expanded={stats} aria-label={stats ? '회사 현황 접기' : '회사 현황 펼치기'}><svg viewBox="0 0 16 16"><path d={stats ? 'M3 10l5-5 5 5' : 'M3 6l5 5 5-5'} /></svg></button>
         </div>
+        {stats && <div className="panel"><CompanyPanel game={game} /></div>}
       </header>
 
       <div className="toasts">{toasts.map(x => <div key={x.id} className={`toast ${x.kind ?? ''}`}>{x.text}</div>)}</div>
 
-      {/* 지도 위 버튼: 아래 막대 바로 위 */}
+      {/* 지도 위 버튼: 아래 노선 막대 바로 위 */}
       <button className="box" id="legend" onClick={() => setLayer(l => (l === 'o' ? 'd' : l === 'd' ? 'u' : 'o'))} aria-label={`수요 레이어 바꾸기, 지금 ${LAYER_NAME[layer]}`}>
         <i className="dot" aria-hidden="true" /><Icon n={LAYER_ICON[layer]} s={20} />
       </button>
@@ -225,9 +230,15 @@ function GameView({ dm }: { dm: Demand }) {
         <HexPanel dm={dm} cell={sel.cell} bin={bin} more={more} setMore={setMore} onClose={() => setSel(null)} onStart={() => startDraft(latLngToCell(...cellToLatLng(sel.cell), 9))} />
       </MapPopup>}
 
-      {/* 아래: 상태 막대 (그리는 중엔 노선 그리기 패널) */}
+      {/* 아래: 노선 막대 + 재생 줄 (그리는 중엔 노선 그리기 패널) */}
       <footer className="box" id="bottom" ref={barEl}>
         {draft ? <div className="panel"><DraftPanel dm={dm} game={game} draft={draft} ev={draftEval} setDraft={setDraft} onCancel={cancelDraft} onDone={finishDraft} /></div> : <>
+        <div id="routebar">
+          {!draft && <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기">+</button>}
+          {game.routes.map(r => <button key={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.from}에서 ${r.to}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => setSel(focusId === r.id ? null : { kind: 'route', id: r.id })}>
+            <span className="n" style={{ background: r.color, color: r.tx }}>{r.num}</span>
+            <span className="m"><span><Icon n="bus" s={13} />{r.buses}</span><span><Icon n="clock" s={13} />{fmtHw(r.headway)}′</span></span></button>)}
+        </div>
           <div className="r1">
             <div className="when"><span className="clock">{hhmm(game.minuteOfDay)}</span>
               <span className="day" aria-label={`${game.day}일차, ${dm.bins[bin].name} 시간대`}>D{game.day} <span className="seg-chip"><Icon n={`b${bin}`} s={12} />{hh(dm.bins[bin].from)}–{hh(dm.bins[bin].to)}</span></span></div>
@@ -236,18 +247,7 @@ function GameView({ dm }: { dm: Demand }) {
               <button aria-pressed={game.speed > 0} aria-label={game.speed ? `${speedName(game.speed)}, 누르면 ${speedName(Game.SPEEDS[(Game.SPEEDS.indexOf(game.speed) + 1) % 3])}` : `재생, ${speedName(game.lastSpeed)}`} onClick={() => { game.play(); rerender(); }}>
                 <PlayIcon n={Game.SPEEDS.indexOf(game.speed || game.lastSpeed) + 1} /></button>
             </div>
-            <div className="money" aria-label={`운행 버스 ${game.usedBuses()}대, 보유 ${game.fleet}대`}><Icon n="bus" s={18} /><span className="v">{game.usedBuses()}<span className="muted">/{game.fleet}</span></span></div>
-            <button className="more" aria-expanded={stats} aria-label={stats ? '회사 현황 접기' : '회사 현황 펼치기'} onClick={() => setStats(x => !x)}><svg viewBox="0 0 16 16"><path d={stats ? 'M3 6l5 5 5-5' : 'M3 10l5-5 5 5'} /></svg></button>
           </div>
-          <div className="r2" onClick={() => setStats(x => !x)}>
-            <span className="got" aria-label={`오늘 수송 ${fmt(got)}명, 목표 ${fmt(t)}명`}><Icon n="person" s={14} /><b>{fmt(got)}</b><span className="muted">/{fmt(t)}</span></span>
-            <span className="satw">
-              <span className="meter goal" aria-hidden="true"><i style={{ width: `${Math.min(100, got / full * 100)}%` }} /><u style={{ left: `${Math.min(100, share / RULES.bonus * 100)}%` }} /><s /></span>
-              {got >= t * share ? <b className="pace ok"><Icon n="up" s={14} label="목표 페이스 넘김" /></b> : <b className="pace bad"><Icon n="down" s={14} label="목표 페이스 부족" /></b>}
-              <span className="streak" role="img" aria-label={`연속 미달 ${game.miss}일 (3일이면 게임 오버)`}>{Array.from({ length: RULES.maxMiss }, (_, i) => <i key={i} className={i < game.miss ? 'on' : ''} />)}</span>
-            </span>
-          </div>
-          {stats && <div className="panel"><CompanyPanel game={game} /></div>}
         </>}
       </footer>
 
@@ -265,9 +265,9 @@ function GameView({ dm }: { dm: Demand }) {
           <dt><Icon n="trunk" /><Icon n="branch" /><Icon n="circ" /></dt><dd>간선 · 지선 · 순환</dd>
           <dt><Icon n="b0" /><Icon n="b1" /><Icon n="b2" /><Icon n="b3" /><Icon n="b4" /></dt><dd>출근 · 낮 · 퇴근 · 저녁 · 심야</dd>
         </dl>
-        <p><b>노선:</b> 위 막대의 + 를 누르고 헥사곤을 하나씩 탭하면 그 칸마다 정류장이 생겨요. 그리는 동안 아래 막대가 노선 그리기 패널로 바뀌어요. 투입할 버스 대수를 정하면 배차간격이 계산돼요. 정류장이 많을수록 한 바퀴가 길어져 간격이 벌어져요.</p>
+        <p><b>노선:</b> 아래 노선 막대의 + 를 누르고 헥사곤을 하나씩 탭하면 그 칸마다 정류장이 생겨요. 그리는 동안 노선 막대와 재생 줄이 노선 그리기 패널로 바뀌어요. 투입할 버스 대수를 정하면 배차간격이 계산돼요. 정류장이 많을수록 한 바퀴가 길어져 간격이 벌어져요.</p>
         <p><b>지도:</b> 헥사곤이나 노선을 누르면 지도 위에 카드가 떠요. 헥사곤 카드에서는 그 칸에서 가고 싶은 곳(파랑 실선)과 오고 싶은 곳(주황 점선)이 보여요. 멀리서 보면 노선은 단순한 선 하나로 보여요.</p>
-        <p><b>화면:</b> 위는 노선 막대(+로 새 노선), 아래는 상태 막대예요. 아래 막대를 누르면 회사 현황이 펼쳐져요.</p>
+        <p><b>화면:</b> 위는 회사 상태(오늘 수송/목표, 페이스, 연속 미달, 버스)예요. 누르면 회사 현황이 펼쳐져요. 아래는 노선 막대(+로 새 노선)와 시계·재생 줄이에요.</p>
         <p><b>시간:</b> ▶를 누를 때마다 현실 1초에 게임 1분(▶) → 5분(▶▶) → 10분(▶▶▶). ❚❚는 멈춤.</p>
         <p><b>규칙:</b> 매일 05시 정산. 목표의 150%를 3일 연속 넘기면 버스 +10대, 3일 연속 목표를 못 채우면 게임 오버예요.</p>
       </div></div>}

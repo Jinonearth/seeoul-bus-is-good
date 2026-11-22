@@ -10,14 +10,17 @@
 .muted{color:var(--muted)}
 
 /* 위: 노선 막대 */
-#topbar{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));left:8px;right:8px;padding:6px;z-index:3}
+#topbar{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));left:8px;right:8px;padding:5px 8px;z-index:3;display:flex;flex-direction:column;gap:6px;max-height:60%}
+#topbar .r2{border-top:0;padding-top:0;cursor:pointer}
+#topbar .panel{border-top:2px solid var(--ink);padding-top:9px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px}
+#bottom .r1{border-top:2px solid var(--ink);padding-top:5px}
+#bottom .clock{font-size:18px}
 #routebar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
 #routebar::-webkit-scrollbar{display:none}
 /* 아래: 상태 막대 (그리는 중엔 노선 그리기 패널) */
 #bottom{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));padding:7px 9px;display:flex;flex-direction:column;gap:6px;z-index:3;max-height:62%}
 #bottom .panel{border-top:2px solid var(--ink);padding-top:9px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px;overscroll-behavior:contain}
 #bottom .panel:first-child{border-top:0;padding-top:0}
-#bottom .r2{cursor:pointer}
 .more{border:0;background:transparent;width:30px;height:34px;display:grid;place-items:center;cursor:pointer;color:var(--ink);flex:none}
 .more svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .more.wide{width:100%;height:28px;display:flex;justify-content:center;gap:4px;border:1.5px dashed var(--muted);color:var(--muted)}
@@ -210,3 +213,4 @@ dl.icons dd{margin:0}
 .over .stat{display:flex;align-items:center;gap:6px;font-size:20px;font-weight:800}
 .need{opacity:.7}
 .head h2 .sub{font-size:13px}
+#topbar .money .v{font-size:15px}
