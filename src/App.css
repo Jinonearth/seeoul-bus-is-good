@@ -22,12 +22,30 @@
 .more svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .more.wide{width:100%;height:28px;display:flex;justify-content:center;gap:4px;border:1.5px dashed var(--muted);color:var(--muted)}
 /* 지도 위 팝업 */
-.popup{position:absolute;z-index:4;width:min(360px,92%);padding:10px 12px;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(29,29,27,.25)}
-.popup .pbody{overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px;overscroll-behavior:contain;min-height:0}
+.popup{position:absolute;z-index:4;width:min(236px,92%);padding:6px 8px;display:flex;flex-direction:column;box-shadow:0 8px 22px rgba(29,29,27,.25);font-size:12.5px}
+.popup.wide{width:min(320px,92%)}
+.popup .ph,.popup .pr{display:flex;align-items:center;gap:4px;min-width:0}
+.popup .pr.small{min-height:20px}
+.popup .pt{flex:1;min-width:0;font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.popup .ps{display:inline-flex;align-items:center;gap:3px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;margin-right:6px}
+.popup .ps .ic{color:var(--muted)}
+.popup .ps.bad,.popup .ps.bad .ic{color:var(--bad)}
+.popup .pb{flex:none;width:36px;height:36px;border:2px solid var(--ink);background:#fff;display:grid;place-items:center;cursor:pointer;font-size:17px;font-weight:800;padding:0;position:relative}
+.popup .pb::after{content:'';position:absolute;inset:-4px}
+.popup .pb.primary{background:var(--accent);width:auto;padding:0 8px;display:inline-flex;gap:1px;margin-left:auto}
+.popup .pb:disabled{opacity:.35}
+.popup .pb .chev{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.popup .ph .badge{min-width:40px;height:26px;font-size:15px;padding:0 6px}
+.popup .sub{font-size:11.5px}
+.popup .quick b{font-size:12.5px}
+.popup .quick div{padding:5px 6px}
+.popup .segt{font-size:12px}
+.popup .bins{height:64px}
+.popup .pbody{overflow:auto;display:flex;flex-direction:column;gap:5px;overscroll-behavior:contain;min-height:0}
 .popup h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:18px}
 .popup h3{margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
-.popup .tip{position:absolute;bottom:-9px;width:14px;height:14px;margin-left:-7px;background:var(--paper);border:2px solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
-.popup .tip[data-below="1"]{bottom:auto;top:-9px;border-width:2px 0 0 2px}
+.popup .tip{position:absolute;bottom:-8px;width:12px;height:12px;margin-left:-6px;background:var(--paper);border:2px solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.popup .tip[data-below="1"]{bottom:auto;top:-8px;border-width:2px 0 0 2px}
 .popup .head{gap:8px}
 .popup .badge{min-width:44px;height:30px;font-size:17px}
 .r1{display:flex;align-items:center;gap:8px}
