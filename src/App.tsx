@@ -71,8 +71,11 @@ function GameView({ dm }: { dm: Demand }) {
       all.forEach((c, i) => { if (i % 2 && i !== all.length - 1) return; const s = near(c); if (s && s !== out[out.length - 1]) out.push(s); });
       return out;
     };
-    game.routes.push(makeRoute(dm, 'trunk', cells([[127.062, 37.655], [127.056, 37.636], [127.047, 37.618], [127.03, 37.602], [127.012, 37.588], [126.998, 37.571], [126.992, 37.566], [127.007, 37.548], [127.017, 37.535], [127.027, 37.519], [127.035, 37.502]]), 18, true));
-    game.routes.push(makeRoute(dm, 'branch', cells([[126.93, 37.484], [126.918, 37.486], [126.908, 37.487], [126.896, 37.484], [126.885, 37.48], [126.875, 37.495]]), 6, true));
+    // 개발 모드(StrictMode)는 이 effect를 두 번 실행해요. 예시 노선이 두 벌 생기면 버스가 모자라 새 노선을 못 만들어요
+    if (!game.routes.length) {
+      game.routes.push(makeRoute(dm, 'trunk', cells([[127.062, 37.655], [127.056, 37.636], [127.047, 37.618], [127.03, 37.602], [127.012, 37.588], [126.998, 37.571], [126.992, 37.566], [127.007, 37.548], [127.017, 37.535], [127.027, 37.519], [127.035, 37.502]]), 18, true));
+      game.routes.push(makeRoute(dm, 'branch', cells([[126.93, 37.484], [126.918, 37.486], [126.908, 37.487], [126.896, 37.484], [126.885, 37.48], [126.875, 37.495]]), 6, true));
+    }
     m.ready.then(() => { redrawRoutes(); rerender(); });
     return () => m.map.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
