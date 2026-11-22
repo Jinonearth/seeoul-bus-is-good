@@ -4,6 +4,8 @@
 
 ## 실행
 
+Node.js 20.19 이상 또는 22.12 이상이 필요해요(Vite 8). 더 낮은 버전이면 설치 때 빌드 도구(rolldown)의 기기별 바이너리가 빠져서 `Cannot find native binding` 오류가 나요. `nvm use`로 `.nvmrc`의 22를 쓰면 돼요.
+
 ```bash
 npm install
 npm run dev      # http://localhost:5173
