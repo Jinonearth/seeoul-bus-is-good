@@ -1,6 +1,8 @@
 // 회사 상태와 시간 흐름: 하루 수송 목표, 05시 정산, 증차, 게임 오버
 import { type Demand, NB, binOf, binHours } from './data';
-import { type Route, type Bus, RULES, BUS_CAP, moveBus, destsOf } from './model';
+import { type Route, type Bus, RULES, BUS_CAP, SPEED, moveBus, destsOf } from './model';
+
+const HOLD_MAX = 3;   // 간격 맞추려 정류장에서 더 기다리는 최대 시간(게임 분)
 
 export const COHORT = 30;   // 기다리는 사람은 30분마다 한 무리씩 생기고, 두 무리(1시간) 지나면 다른 교통수단으로 떠나요
 // 기다리는 사람으로 치는 출발 수요 비율. 전체 대중교통 출발을 다 넣으면 버스가 태워 가도 망점이 3%쯤밖에 안 줄어서,
@@ -57,7 +59,7 @@ export class Game {
     if (this.over || gm <= 0) return;
     const before = this.min; this.min += gm;
     this.stepCohorts(before);
-    for (const r of this.routes) for (const b of r.bus) moveBus(r, b, gm, this.serve);
+    for (const r of this.routes) { this.spacing(r); for (const b of r.bus) moveBus(r, b, gm, this.serve); }
     const S = RULES.settleMin;
     if (Math.floor((this.min - S) / 1440) > Math.floor((before - S) / 1440)) this.settle();
   }
@@ -81,7 +83,7 @@ export class Game {
 
   // ── 기다리는 사람 (셀마다, 30분 무리 둘) ──
   // :00과 :30마다 그 30분 동안의 출발 수요(그때 시간대 비율 × POOL_SHARE)가 새 무리로 생기고,
-  // 1시간 된 무리는 다른 교통수단으로 떠나요. 노선이 닿는 셀에서 떠난 사람은 그날 놓침.
+  // 1시간 된 무리는 다른 교통수단으로 떠나요. 그중 노선 손님(그 노선이 갈 곳에 가려던 사람)이 못 타고 떠나면 그날 놓침.
   // 버스가 태우면 그 정류장으로 걸어오는 셀들에서, 오래 기다린 무리부터 빠져요. 망점 = 두 무리 합 ÷ 지금 1시간 수요.
   pool: Float64Array;                 // 두 무리 합 (지도 망점용)
   private old: Float64Array;          // 30~60분 된 무리
@@ -96,14 +98,11 @@ export class Game {
       this.old = this.cohortAt(h - COHORT); this.young = this.cohortAt(h); this.seeded = true;
     }
     for (let h = Math.floor(before / COHORT) + 1; h <= Math.floor(this.min / COHORT); h++) {
-      const covered = this.coveredCells(), O = this.old;
-      for (let i = 0; i < O.length; i++) if (covered[i]) this.todayMissed += O[i];
       this.old = this.young; this.young = this.cohortAt(h * COHORT);
-      for (const r of this.routes) if (r.claim) { r.claim.old = r.claim.young; r.claim.young = this.claimOf(r, this.young, binOf(this.dm, (h * COHORT) % 1440)); }
+      for (const r of this.routes) if (r.claim) { for (const x of r.claim.old) this.todayMissed += x; r.claim.old = r.claim.young; r.claim.young = this.claimOf(r, this.young, binOf(this.dm, (h * COHORT) % 1440)); }
     }
     const P = this.pool; for (let i = 0; i < P.length; i++) P[i] = this.old[i] + this.young[i];
   }
-  private coveredCells() { const c = new Uint8Array(this.pool.length); for (const r of this.routes) for (const k of r.catch) for (const i of k.cells) c[i] = 1; return c; }
   private drainPool(r: Route, stop: number, n: number) {
     const c = r.catch[stop]; if (!c) return;
     for (const A of [this.old, this.young]) {   // 오래 기다린 무리부터
@@ -116,6 +115,21 @@ export class Game {
     }
     const P = this.pool; for (const i of c.cells) P[i] = this.old[i] + this.young[i];
   }
+  // ── 배차 간격 맞추기 ──
+  // 정차가 길어진 버스 뒤로 다음 버스가 따라붙어 몰려다니지 않게, 앞차와의 간격이 뒤차와의 간격보다 좁으면
+  // 정류장에서 그 차이의 절반만큼(최대 HOLD_MAX분) 더 기다려요
+  private gapAhead = new Map<Bus, number>(); private gapBehind = new Map<Bus, number>();
+  private spacing(r: Route) {
+    const L = 2 * r.lenKm, B = [...r.bus].sort((a, b) => a.s - b.s), n = B.length;
+    if (n < 2 || L <= 0) return;
+    B.forEach((b, i) => { this.gapAhead.set(b, ((B[(i + 1) % n].s - b.s) % L + L) % L); this.gapBehind.set(b, ((b.s - B[(i - 1 + n) % n].s) % L + L) % L); });
+  }
+  private holdFor(b: Bus) {
+    const a = this.gapAhead.get(b), be = this.gapBehind.get(b);
+    if (a == null || be == null || be <= a) return 0;
+    return Math.min(HOLD_MAX, (be - a) / 2 / SPEED);
+  }
+
   // ── 노선 손님 ──
   // 자리 k(정류장 i, 방향)의 시간대 b 하루 통행 T = Σ_j pair[b][i][j] (이 방향 뒤쪽 정류장 j), 걸어오는 출발 수요 합 E = catch[i].E[b].
   // 이 노선 몫 f = T / E. 기다리는 사람은 출발의 POOL_SHARE만 모이니, 새 무리 중 이 자리 손님 = min(1, f / POOL_SHARE) × Σ(걷기 가중 × 셀의 새 무리).
@@ -135,7 +149,7 @@ export class Game {
   // 탈 사람 = min(⌊min(이 자리 손님, 걸어오는 셀에 실제로 기다리는 사람)⌋, 75 − 탄 사람). 다른 노선이 같은 셀에서 먼저 태워 가면 줄어요.
   // 내릴 곳은 pair 비율대로(큰 나머지 순). 손님과 셀의 기다리는 사람에서 오래된 무리부터 빼요. 못 탄 사람은 1시간 지나면 떠나요(놓침).
   private serve = (r: Route, b: Bus, k: number) => {
-    const off = b.load[k]; b.load[k] = 0; b.on -= off;
+    const off = b.load[k]; b.load[k] = 0; b.on -= off; b.hold = this.holdFor(b);
     if (!r.claim || r.claim.old.length !== r.visits.length) r.claim = { old: this.claimOf(r, this.old, this.bin), young: this.claimOf(r, this.young, this.bin) };
     const n = r.stops.length, i = r.visits[k].i, bin = this.bin, c = r.catch[i], cl = r.claim;
     let on = 0; b.full = false;

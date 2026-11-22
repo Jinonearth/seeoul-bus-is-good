@@ -22,7 +22,7 @@ export const DWELL_PER = 0.03;     // 1명 타고 내릴 때마다 약 2초
 export const DWELL_EST = 0.4;      // 한 바퀴 시간 계산용 정류장당 평균 정차(분)
 export const BUS_CAP = 75;
 export const CAP_H = BUS_CAP * 3 * 2;   // 버스 한 대 한 시간 정원 = 75인승 × 구간 회전 3 × 양방향
-export const CAPTURE = 0.25;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
+export const CAPTURE = 0.23;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
 export const MIN_GAP = 2;               // 이보다 가까운 정류장 사이(헥사곤 칸 수)는 걸어감
 
 // ── 노선 표기 (색약 고려: 색 + 패턴) ──
@@ -48,7 +48,7 @@ export type Eval = {
   pair: Float64Array;   // [시간대][출발 정류장][도착 정류장] 이 노선이 실어 나를 하루 통행 (evalRoute 예상)
 };
 // 버스: 고리 위 위치 s, 다음에 설 자리 k, 정차 남은 시간, 탄 사람(내릴 자리별 명수), 만차로 사람을 남겼는지
-export type Bus = { s: number; k: number; wait: number; load: Int32Array; on: number; full: boolean; pax: number };
+export type Bus = { s: number; k: number; wait: number; load: Int32Array; on: number; full: boolean; pax: number; hold: number };   // hold: 앞차와 너무 붙어서 정류장에서 더 기다릴 시간(분)
 export type Route = Eval & {
   id: number; num: string; type: RouteType; color: string; tx: string; pattern: number;
   from: string; to: string; bus: Bus[]; example?: boolean;
@@ -177,7 +177,7 @@ function resetBuses(r: Route) {
   const L = 2 * r.lenKm;
   r.bus = Array.from({ length: r.buses }, (_, n) => {
     const s = n / r.buses * L; let k = r.visits.findIndex(q => q.s >= s); if (k < 0) k = 0;
-    return { s, k, wait: 0, load: new Int32Array(r.visits.length), on: 0, full: false, pax: 0 };
+    return { s, k, wait: 0, load: new Int32Array(r.visits.length), on: 0, full: false, pax: 0, hold: 0 };
   });
 }
 
@@ -193,7 +193,7 @@ export function moveBus(r: Route, b: Bus, gm: number, serve: Serve) {
     const step = SPEED * left;
     if (step < dist) { b.s = (b.s + step) % L2; return; }
     b.s = q.s; left -= dist / SPEED;
-    const moved = serve(r, b, b.k); b.pax = moved; b.wait = DWELL0 + DWELL_PER * moved; b.k = (b.k + 1) % seq.length;
+    const moved = serve(r, b, b.k); b.pax = moved; b.wait = DWELL0 + DWELL_PER * moved + b.hold; b.hold = 0; b.k = (b.k + 1) % seq.length;
   }
 }
 // 자리 k(고리에서 k번째로 서는 곳)에서 타는 사람이 갈 수 있는 정류장들과 그 자리 번호
