@@ -134,13 +134,12 @@ export class GameMap {
   // 지금 시간대 수요를 헥사곤 망점으로
   setDemand(layer: Layer, bin: number, covered: Set<string>) {
     const dm = this.dm;
-    const sets: [number, { id: string; lat: number; lng: number; O: number[]; D: number[] }[]][] = [
+    const sets: [number, { id: string; lat: number; lng: number; O: number[]; D: number[]; Ou: number[] }[]][] = [
       [7, [...dm.parents[0].values()]], [8, [...dm.parents[1].values()]], [9, dm.cells]];
     for (const [res, list] of sets) {
-      const val = (c: { id: string; O: number[]; D: number[] }) => {
-        const v = layer === 'd' ? c.D[bin] : c.O[bin];
-        if (layer !== 'u') return v;
-        return isCovered(c.id, res, covered) ? 0 : v;
+      const val = (c: { id: string; O: number[]; D: number[]; Ou: number[] }) => {
+        if (layer !== 'u') return layer === 'd' ? c.D[bin] : c.O[bin];
+        return isCovered(c.id, res, covered) ? 0 : c.Ou[bin];
       };
       const vals = list.map(val), sorted = [...vals].sort((a, b) => a - b), ref = sorted[Math.floor(sorted.length * 0.98)] || 1;
       const hex: GeoJSON.Feature[] = [], dot: GeoJSON.Feature[] = [];
