@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { latLngToCell, cellToParent, gridDisk, cellToLatLng, gridPathCells } from 'h3-js';
+import { latLngToCell, cellToParent, gridDisk, gridDiskDistances, cellToLatLng, gridPathCells } from 'h3-js';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
-import { type Demand, loadDemand, binHours } from './game/data';
+import { type Demand, loadDemand, binHours, stopable } from './game/data';
 import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt, WALK } from './game/model';
 import { Game, fmt, type Settle } from './game/state';
 
@@ -61,11 +61,15 @@ function GameView({ dm }: { dm: Demand }) {
   useEffect(() => {
     const m = new GameMap(mapEl.current!, dm); gm.current = m;
     game.onSettle = (x: Settle) => toast({ kind: x.ok ? 'good' : 'warn', text: <>D{x.day} <Icon n={x.ok ? 'ok' : 'x'} s={14} /> <Icon n="person" s={14} />{fmt(x.got)}/{fmt(x.target)}{!x.ok && <> <Icon n="warn" s={14} />{x.miss}/{RULES.maxMiss}</>}{x.ok && x.hit > 0 && <> <Icon n="up" s={14} />{x.hit}/{RULES.bonusDays}</>}{x.grow > 0 && <> <Icon n="bus" s={14} />+{x.grow}</>}</> }); game.onOver = rerender;
-    // 예시 노선: 지나는 헥사곤 두 칸마다 정류장 (실제 서울 버스 정류장 간격 약 500m)
+    // 예시 노선: 지나는 헥사곤 두 칸마다 정류장 (실제 서울 버스 정류장 간격 약 500m).
+    // 그 칸에 도로가 없으면 가장 가까운 정류장 가능 칸으로
+    const near = (c: string) => gridDiskDistances(c, 2).flat().find(stopable);
     const cells = (pts: [number, number][]) => {
       const key = pts.map(([lng, lat]) => latLngToCell(lat, lng, 9)), all: string[] = [key[0]];
       for (let i = 1; i < key.length; i++) all.push(...gridPathCells(key[i - 1], key[i]).slice(1));
-      return all.filter((_, i) => i % 2 === 0 || i === all.length - 1);
+      const out: string[] = [];
+      all.forEach((c, i) => { if (i % 2 && i !== all.length - 1) return; const s = near(c); if (s && s !== out[out.length - 1]) out.push(s); });
+      return out;
     };
     game.routes.push(makeRoute(dm, 'trunk', cells([[127.062, 37.655], [127.056, 37.636], [127.047, 37.618], [127.03, 37.602], [127.012, 37.588], [126.998, 37.571], [126.992, 37.566], [127.007, 37.548], [127.017, 37.535], [127.027, 37.519], [127.035, 37.502]]), 18, true));
     game.routes.push(makeRoute(dm, 'branch', cells([[126.93, 37.484], [126.918, 37.486], [126.908, 37.487], [126.896, 37.484], [126.885, 37.48], [126.875, 37.495]]), 6, true));
@@ -101,7 +105,7 @@ function GameView({ dm }: { dm: Demand }) {
       const d = draftRef.current;
       if (d) {   // 노선 그리기: 탭한 헥사곤(res9)마다 정류장 하나
         const c = latLngToCell(lngLat[1], lngLat[0], 9);
-        if (!dm.byId.has(c)) return toast({ text: <><Icon n="x" s={14} /><Icon n="stop" s={14} /></>, kind: 'warn' });
+        if (!dm.byId.has(c) || !stopable(c)) return toast({ text: <><Icon n="x" s={14} /><Icon n="stop" s={14} /></>, kind: 'warn' });
         if (d.stops[d.stops.length - 1] === c) return;
         setDraft({ ...d, stops: [...d.stops, c] }); return;
       }
@@ -123,13 +127,20 @@ function GameView({ dm }: { dm: Demand }) {
   // 그리는 중인 노선
   const draftEval = useMemo(() => (draft && draft.stops.length >= 2 ? evalRoute(dm, draft.stops, draft.buses, draft.type) : null), [dm, draft]);
   useEffect(() => {
-    const m = gm.current; if (!m?.map.loaded()) return;
-    if (!draft) { m.setDraft([], [], ''); return; }
-    const color = draft.editing?.color ?? routeStyle(game.routes.length).color;
-    m.setDraft(draft.stops.length > 1 ? routePath(draft.stops).path : [], draft.stops, color);
+    const m = gm.current; if (!m) return;
+    let live = true;
+    // 타일을 읽는 동안엔 map.loaded()가 false라서, 레이어가 준비됐는지만 기다려요
+    m.ready.then(() => {
+      if (!live) return;
+      m.setDrawing(!!draft);
+      if (!draft) { m.setDraft([], [], ''); return; }
+      const color = draft.editing?.color ?? routeStyle(game.routes.length).color;
+      m.setDraft(draft.stops.length > 1 ? routePath(draft.stops).path : [], draft.stops, color);
+    });
+    return () => { live = false; };
   }, [draft, game]);
 
-  const startDraft = (first?: string) => { setDraft({ stops: first ? [first] : [], type: 'trunk', buses: Math.min(4, Math.max(1, game.freeBuses)) }); setSel({ kind: 'draft' }); setSheet('open'); };
+  const startDraft = (first?: string) => { setDraft({ stops: first && stopable(first) ? [first] : [], type: 'trunk', buses: Math.min(4, Math.max(1, game.freeBuses)) }); setSel({ kind: 'draft' }); setSheet('open'); };
   const cancelDraft = () => { setDraft(null); setSel(null); setSheet('peek'); };
   const finishDraft = () => {
     if (!draft || draft.stops.length < 2) return;

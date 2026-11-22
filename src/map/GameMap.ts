@@ -2,8 +2,8 @@
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import { cellToBoundary, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
-import type { Demand } from '../game/data';
-import { type Route, posAt, crowdAt, center } from '../game/model';
+import { type Demand, snapped, stopable } from '../game/data';
+import { type Route, posAt, crowdAt, WALK } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
 
 export type Layer = 'o' | 'd' | 'u';
@@ -54,6 +54,8 @@ export class GameMap {
       m.addSource(`hex${res}`, { type: 'geojson', data: fc() });
       m.addSource(`dot${res}`, { type: 'geojson', data: fc() });
       m.addLayer({ id: `hex${res}-u`, type: 'fill', source: `hex${res}`, minzoom, maxzoom, filter: ['==', ['get', 'u'], 1], paint: { 'fill-color': PINK, 'fill-opacity': 0.18 } });
+      // 노선 그리는 중: 도로가 없어 정류장을 둘 수 없는 셀을 옅은 회색으로
+      if (res === 9) m.addLayer({ id: 'hex9-ns', type: 'fill', source: 'hex9', minzoom, maxzoom, filter: ['==', ['get', 'ns'], 1], layout: { visibility: 'none' }, paint: { 'fill-color': INK, 'fill-opacity': 0.14 } });
       m.addLayer({ id: `hex${res}-line`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': INK, 'line-opacity': 0.12, 'line-width': 1 } });
       // 망점 반지름 = 셀 크기 × 단계 비율. 줌이 1 오르면 화면 크기 2배
       const edge = getHexagonEdgeLengthAvg(res, UNITS.m), k = (z: number) => edge / (156543 * Math.cos(37.55 * Math.PI / 180) / 2 ** z);
@@ -145,7 +147,7 @@ export class GameMap {
       list.forEach((c, i) => {
         const v = Math.sqrt(Math.min(1, vals[i] / ref));
         const ring = cellToBoundary(c.id, true);
-        hex.push({ type: 'Feature', properties: { id: c.id, u: layer === 'u' && vals[i] > 0.04 * ref ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
+        hex.push({ type: 'Feature', properties: { id: c.id, u: layer === 'u' && vals[i] > 0.04 * ref ? 1 : 0, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
         if (v >= 0.08) dot.push({ type: 'Feature', properties: { r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } });
       });
       (this.map.getSource(`hex${res}`) as GeoJSONSource).setData(fc(hex));
@@ -180,16 +182,18 @@ export class GameMap {
       this.plate(r);
       const dim = focus != null && focus !== r.id;
       lines.push({ type: 'Feature', properties: { id: r.id, num: r.num, color: r.color, pattern: r.pattern, dim }, geometry: { type: 'LineString', coordinates: r.path } });
-      for (const s of r.stops) stops.push({ type: 'Feature', properties: { dim }, geometry: { type: 'Point', coordinates: center(s) } });
+      for (const s of r.stops) stops.push({ type: 'Feature', properties: { dim }, geometry: { type: 'Point', coordinates: snapped(s) } });
     }
     (this.map.getSource('routes') as GeoJSONSource).setData(fc(lines));
     (this.map.getSource('stops') as GeoJSONSource).setData(fc(stops));
   }
 
+  setDrawing(on: boolean) { this.map.setLayoutProperty('hex9-ns', 'visibility', on ? 'visible' : 'none'); }
+
   setDraft(path: [number, number][], stops: string[], color: string) {
     const f: GeoJSON.Feature[] = [];
     if (path.length > 1) f.push({ type: 'Feature', properties: { color }, geometry: { type: 'LineString', coordinates: path } });
-    stops.forEach((s, i) => f.push({ type: 'Feature', properties: { color, first: i === 0 }, geometry: { type: 'Point', coordinates: center(s) } }));
+    stops.forEach((s, i) => f.push({ type: 'Feature', properties: { color, first: i === 0 }, geometry: { type: 'Point', coordinates: snapped(s) } }));
     (this.map.getSource('draft') as GeoJSONSource).setData(fc(f));
   }
 
@@ -216,4 +220,4 @@ export function setCoverage(covered: Set<string>, parentsOf: (id: string, res: n
   parentCovered.set(7, new Set([...covered].map(c => parentsOf(c, 7))));
   parentCovered.set(8, new Set([...covered].map(c => parentsOf(c, 8))));
 }
-export const catchmentCells = (stop: string) => gridDisk(stop, 1);
+export const catchmentCells = (stop: string) => gridDisk(stop, WALK.length - 1);

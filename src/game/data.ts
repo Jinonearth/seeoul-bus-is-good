@@ -28,11 +28,19 @@ export type Agg = { id: string; lat: number; lng: number; O: number[]; D: number
 
 export const key = (a: number, c: number) => a * 1000 + c;
 
+// 정류장 자리: 셀마다 버스가 설 수 있는 도로 위 한 점 (scripts/build_stop_snap.py).
+// 목록에 없는 셀은 쓸 도로가 없어 정류장을 둘 수 없어요.
+const SNAP = new Map<string, [number, number]>();
+export const stopable = (id: string) => SNAP.has(id);
+export const snapped = (id: string): [number, number] => { const p = SNAP.get(id); if (p) return p; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
+
 export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Demand> {
-  const [dem, flat] = await Promise.all([
+  const [dem, flat, snap] = await Promise.all([
     fetch(`${base}data/demand.json`).then(r => r.json()),
     fetch(`${base}data/od.json`).then(r => r.json()) as Promise<number[]>,
+    fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, [number, number]>>,
   ]);
+  SNAP.clear(); for (const id in snap) SNAP.set(id, snap[id]);
   const od = new Map<number, number>(), outOf = new Map<number, [number, number][]>(), into = new Map<number, [number, number][]>();
   const nd = dem.dongs.length, dongOut = new Float64Array(nd), dongInBin = Array.from({ length: nd }, () => new Float64Array(NB));
   let total = 0;

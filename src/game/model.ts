@@ -1,6 +1,6 @@
 // 게임 규칙과 노선 계산. 화면과 분리된 순수 로직.
 import { gridDiskDistances, gridDistance, gridPathCells, cellToLatLng } from 'h3-js';
-import { type Demand, NB, key, binHours } from './data';
+import { type Demand, NB, key, binHours, snapped } from './data';
 
 // ── 규칙 (1차 임시값, 시나리오 기획안과 같음) ──
 export const RULES = {
@@ -52,7 +52,7 @@ const hav = (a: [number, number], b: [number, number]) => {
 };
 export const center = (id: string): [number, number] => { const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
 
-// 탭한 정류장 셀들 사이를 지나는 헥사곤 중심선
+// 탭한 정류장 셀들 사이를 지나는 선. 정류장과 지나는 셀 모두 그 셀의 도로 위 점(도로 없는 셀은 중심)을 이어요
 export function routePath(stops: string[]) {
   const cells: string[] = [], stopAt: number[] = [];
   stops.forEach((s, i) => {
@@ -61,7 +61,7 @@ export function routePath(stops: string[]) {
     try { seg = gridPathCells(stops[i - 1], s); } catch { seg = [stops[i - 1], s]; }
     cells.push(...seg.slice(1)); stopAt.push(cells.length - 1);
   });
-  const path = cells.map(center), cum = [0];
+  const path = cells.map(snapped), cum = [0];
   for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + hav(path[i - 1], path[i]));
   return { path, cum, stopAt: stopAt.map(i => cum[i]), lenKm: cum[cum.length - 1] };
 }
