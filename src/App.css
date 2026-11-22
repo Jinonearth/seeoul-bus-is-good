@@ -49,7 +49,7 @@
 #legend .dot{width:12px;height:12px;border-radius:50%;background:var(--pink)}
 #legend .next{color:var(--muted);font-size:11px}
 .legend-big{border:1.5px solid var(--ink);background:#fff;padding:8px 10px;font-size:11px;color:var(--muted)}
-.legend-big svg{display:block;width:100%;height:auto;margin:5px 0 2px}
+.legend-big > svg{display:block;width:100%;height:auto;margin:5px 0 2px}
 .legend-big .ends{display:flex;justify-content:space-between;font-size:10px}
 #zoom{right:10px;display:flex;padding:2px;gap:2px}
 #helpbox{right:10px;bottom:calc(var(--sheet-h) + 66px + env(safe-area-inset-bottom,0px));padding:2px}
@@ -136,3 +136,51 @@
 .over svg{width:36px;height:36px;stroke:var(--bad);fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
 .maplibregl-ctrl-attrib{font-size:10px}
 @media (prefers-reduced-motion:reduce){.toast{animation:none}#sheet,#legend,#zoom,#helpbox{transition:none}}
+
+/* ── 글자 대신 아이콘 ── */
+.ic{flex:none;vertical-align:-2px}
+.ic.good{color:var(--good)}
+.ic.bad{color:var(--bad)}
+.money{flex-direction:row;align-items:center;gap:5px}
+.money .v .muted{font-size:13px;font-weight:700}
+.seg-chip{display:inline-flex;align-items:center;gap:3px}
+.got{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.pace{display:inline-flex}
+.pace.ok{color:var(--good)}
+.pace.bad{color:var(--bad)}
+.toast{display:flex;align-items:center;gap:4px;font-weight:700;font-variant-numeric:tabular-nums;width:max-content;max-width:100%;margin:0 auto}
+#legend{gap:6px;padding:0 10px}
+.chip.add{width:52px;justify-content:center;padding:0;font-size:26px;font-weight:800;border-style:solid}
+.chip .m{flex-direction:row;gap:8px;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.chip .m span{display:inline-flex;align-items:center;gap:3px}
+.quick div{flex-direction:row;align-items:center;gap:6px}
+.quick div .ic{color:var(--muted)}
+.quick div.warn .ic,.quick div.warn b{color:var(--bad)}
+.head .acts{margin-left:auto;display:flex;gap:6px}
+.head h2{display:flex;align-items:center;gap:6px}
+.head .sub{display:inline-flex;align-items:center;gap:3px}
+.btn.icon{min-width:44px;padding:0 10px;display:inline-flex;align-items:center;justify-content:center;gap:2px;font-size:18px;font-weight:800}
+.btn.danger.armed{background:var(--bad);color:#fff}
+.hw > b{display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.need{display:inline-flex;align-items:center;gap:3px}
+.crowd{height:auto;display:flex;align-items:center;gap:8px;background:none}
+.crowd i{height:8px;flex:none;max-width:calc(100% - 60px)}
+.crowd::before{content:'';order:2}
+.crowd span{font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:3px;margin-left:auto}
+.crowd{background:linear-gradient(#E4DFD1,#E4DFD1) 0 50%/calc(100% - 60px) 8px no-repeat}
+.segt th .ic,.segt td .ic{margin-right:2px}
+.bins small{display:flex;justify-content:center}
+.legend-inline span{display:inline-flex;align-items:center}
+h3.ih{display:flex;align-items:center;gap:8px}
+.swatch{display:inline-block;width:28px;height:0;border-top:3px solid #0072B2}
+.swatch.in{border-top:3px dashed #D55E00}
+.seg button{display:inline-flex;justify-content:center;align-items:center}
+dl.icons{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;margin:0;font-size:12.5px;color:var(--dim);align-items:center}
+dl.icons dt{display:flex;gap:2px;justify-content:flex-end;color:var(--ink)}
+dl.icons dd{margin:0}
+.help .box{max-height:calc(100% - 40px);overflow:auto}
+.over .box{align-items:center;text-align:center}
+.over .big{font-family:var(--f-display);font-size:40px}
+.over .stat{display:flex;align-items:center;gap:6px;font-size:20px;font-weight:800}
+.need{opacity:.7}
+.head h2 .sub{font-size:13px}

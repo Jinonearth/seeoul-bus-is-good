@@ -3,14 +3,18 @@ import { latLngToCell, cellToParent, gridDisk, cellToLatLng, gridPathCells } fro
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { type Demand, loadDemand, binHours } from './game/data';
-import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt, PATTERNS } from './game/model';
-import { Game, fmt, type Toast } from './game/state';
+import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt } from './game/model';
+import { Game, fmt, type Settle } from './game/state';
+
+type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
+import { Icon } from './ui/Icon';
 import { GameMap, type Layer, type Flow, setCoverage } from './map/GameMap';
 
 type Sel = { kind: 'hex'; cell: string } | { kind: 'route'; id: number } | { kind: 'draft' } | null;
 type Draft = { stops: string[]; type: RouteType; buses: number; editing?: Route };
 const LAYER_NAME: Record<Layer, string> = { o: '출발 수요', d: '도착 수요', u: '버스가 닿지 않는 출발 수요' };
-const LAYER_SHORT: Record<Layer, string> = { o: '출발', d: '도착', u: '미충족' };
+const LAYER_ICON: Record<Layer, string> = { o: 'out', d: 'in', u: 'gap' };
+const hh = (h: number) => String(h).padStart(2, '0');
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 const fmtHw = (h: number) => (h < 10 ? h.toFixed(1) : String(Math.round(h)));
 
@@ -56,7 +60,7 @@ function GameView({ dm }: { dm: Demand }) {
   // 지도 만들기 + 예시 노선 2개
   useEffect(() => {
     const m = new GameMap(mapEl.current!, dm); gm.current = m;
-    game.onToast = toast; game.onOver = rerender;
+    game.onSettle = (x: Settle) => toast({ kind: x.ok ? 'good' : 'warn', text: <>D{x.day} <Icon n={x.ok ? 'ok' : 'x'} s={14} /> <Icon n="person" s={14} />{fmt(x.got)}/{fmt(x.target)}{!x.ok && <> <Icon n="warn" s={14} />{x.miss}/{RULES.maxMiss}</>}{x.ok && x.hit > 0 && <> <Icon n="up" s={14} />{x.hit}/{RULES.bonusDays}</>}{x.grow > 0 && <> <Icon n="bus" s={14} />+{x.grow}</>}</> }); game.onOver = rerender;
     // 예시 노선: 지나는 헥사곤 두 칸마다 정류장 (실제 서울 버스 정류장 간격 약 500m)
     const cells = (pts: [number, number][]) => {
       const key = pts.map(([lng, lat]) => latLngToCell(lat, lng, 9)), all: string[] = [key[0]];
@@ -97,7 +101,7 @@ function GameView({ dm }: { dm: Demand }) {
       const d = draftRef.current;
       if (d) {   // 노선 그리기: 탭한 헥사곤(res9)마다 정류장 하나
         const c = latLngToCell(lngLat[1], lngLat[0], 9);
-        if (!dm.byId.has(c)) return toast({ text: '서울 안에서만 정류장을 만들 수 있어요.', kind: 'warn' });
+        if (!dm.byId.has(c)) return toast({ text: <><Icon n="x" s={14} /><Icon n="stop" s={14} /></>, kind: 'warn' });
         if (d.stops[d.stops.length - 1] === c) return;
         setDraft({ ...d, stops: [...d.stops, c] }); return;
       }
@@ -130,10 +134,10 @@ function GameView({ dm }: { dm: Demand }) {
   const finishDraft = () => {
     if (!draft || draft.stops.length < 2) return;
     const free = game.fleet - game.usedBuses(draft.editing);
-    if (draft.buses > free) return toast({ text: `남은 버스가 ${free}대뿐이에요.`, kind: 'warn' });
+    if (draft.buses > free) return toast({ text: <><Icon n="bus" s={14} />{free}</>, kind: 'warn' });
     let r: Route;
-    if (draft.editing) { r = draft.editing; updateRoute(dm, r, draft.stops, draft.buses); toast({ text: `${r.num}번 노선을 고쳤어요.`, kind: 'good' }); }
-    else { r = makeRoute(dm, draft.type, draft.stops, draft.buses); game.routes.push(r); toast({ text: `${r.num}번 ${TYPES[r.type]}버스를 개설했어요. 버스 ${r.buses}대 투입, 배차 ${fmtHw(r.headway)}분.`, kind: 'good' }); }
+    if (draft.editing) { r = draft.editing; updateRoute(dm, r, draft.stops, draft.buses); toast({ text: <><Icon n="edit" s={14} />{r.num} <Icon n="ok" s={14} /></>, kind: 'good' }); }
+    else { r = makeRoute(dm, draft.type, draft.stops, draft.buses); game.routes.push(r); toast({ text: <>+{r.num} <Icon n="bus" s={14} />{r.buses} <Icon n="clock" s={14} />{fmtHw(r.headway)}′</>, kind: 'good' }); }
     setDraft(null); setSel({ kind: 'route', id: r.id }); redrawRoutes();
   };
 
@@ -148,30 +152,30 @@ function GameView({ dm }: { dm: Demand }) {
       <header className="box" id="hud">
         <div className="r1">
           <div className="when"><span className="clock">{hhmm(game.minuteOfDay)}</span>
-            <span className="day">{game.day}일차 <span className="seg-chip">{dm.bins[bin].name} {String(dm.bins[bin].from).padStart(2, '0')}–{String(dm.bins[bin].to).padStart(2, '0')}</span></span></div>
+            <span className="day" aria-label={`${game.day}일차, ${dm.bins[bin].name} 시간대`}>D{game.day} <span className="seg-chip"><Icon n={`b${bin}`} s={12} />{hh(dm.bins[bin].from)}–{hh(dm.bins[bin].to)}</span></span></div>
           <div className="speed" role="group" aria-label="시간 속도">
             {[0, 1, 4].map(s => <button key={s} aria-pressed={game.speed === s} aria-label={s ? `${s}배속` : '일시정지'} onClick={() => { game.speed = s; rerender(); }}>
               {s === 0 ? <svg viewBox="0 0 16 16"><rect x="3" y="2" width="3.5" height="12" /><rect x="9.5" y="2" width="3.5" height="12" /></svg>
                 : s === 1 ? <svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z" /></svg> : <svg viewBox="0 0 16 16"><path d="M1 3v10l7-5zM8 3v10l7-5z" /></svg>}
               {s > 0 && <small>{s}×</small>}</button>)}
           </div>
-          <div className="money"><span className="lbl">운행 버스</span><span className="v">{game.usedBuses()}/{game.fleet}</span></div>
+          <div className="money" aria-label={`운행 버스 ${game.usedBuses()}대, 보유 ${game.fleet}대`}><Icon n="bus" s={18} /><span className="v">{game.usedBuses()}<span className="muted">/{game.fleet}</span></span></div>
         </div>
         <div className="r2">
-          <span>오늘 수송 <b>{fmt(got)}</b><span className="muted"> / {fmt(t)}</span></span>
+          <span className="got" aria-label={`오늘 수송 ${fmt(got)}명, 목표 ${fmt(t)}명`}><Icon n="person" s={14} /><b>{fmt(got)}</b><span className="muted">/{fmt(t)}</span></span>
           <span className="satw">
             <span className="meter goal" aria-hidden="true"><i style={{ width: `${Math.min(100, got / full * 100)}%` }} /><u style={{ left: `${Math.min(100, share / RULES.bonus * 100)}%` }} /><s /></span>
-            <b className="pace">{got >= t * share ? '페이스 OK' : '페이스 부족'}</b>
-            <span className="streak" title="연속 미달 일수 (3일이면 게임 오버)">{Array.from({ length: RULES.maxMiss }, (_, i) => <i key={i} className={i < game.miss ? 'on' : ''} />)}</span>
+            {got >= t * share ? <b className="pace ok"><Icon n="up" s={14} label="목표 페이스 넘김" /></b> : <b className="pace bad"><Icon n="down" s={14} label="목표 페이스 부족" /></b>}
+            <span className="streak" role="img" aria-label={`연속 미달 ${game.miss}일 (3일이면 게임 오버)`}>{Array.from({ length: RULES.maxMiss }, (_, i) => <i key={i} className={i < game.miss ? 'on' : ''} />)}</span>
           </span>
         </div>
       </header>
 
       <div className="toasts">{toasts.map(x => <div key={x.id} className={`toast ${x.kind ?? ''}`}>{x.text}</div>)}</div>
 
-      {/* 수요 레이어 전환: 평소엔 한 줄 버튼만, 망점 크기 범례는 ? 설명에서 */}
+      {/* 수요 레이어 전환: 아이콘 한 개짜리 버튼, 뜻과 망점 크기 범례는 ? 설명에서 */}
       <button className="box" id="legend" onClick={() => setLayer(l => (l === 'o' ? 'd' : l === 'd' ? 'u' : 'o'))} aria-label={`수요 레이어 바꾸기, 지금 ${LAYER_NAME[layer]}`}>
-        <i className="dot" aria-hidden="true" />{LAYER_SHORT[layer]} <span className="next">▸</span>
+        <i className="dot" aria-hidden="true" /><Icon n={LAYER_ICON[layer]} s={20} />
       </button>
       <div className="box" id="helpbox"><button className="zb" aria-pressed={help} aria-label="화면 설명" onClick={() => setHelp(h => !h)}>?</button></div>
       <div className="box" id="zoom">
@@ -182,16 +186,16 @@ function GameView({ dm }: { dm: Demand }) {
       <section className="box" id="sheet" data-state={sel?.kind === 'draft' ? 'draft' : sheet}>
         <button id="grab" aria-label="패널 펼치기·접기" onClick={() => setSheet(s => (s === 'open' ? 'peek' : 'open'))}><i /></button>
         <div id="routebar">
-          {!draft && <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기"><b>+</b>새 노선</button>}
-          {game.routes.map(r => <button key={r.id} className="chip" aria-pressed={focusId === r.id} onClick={() => { setSel({ kind: 'route', id: r.id }); setSheet('open'); }}>
+          {!draft && <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기">+</button>}
+          {game.routes.map(r => <button key={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.from}에서 ${r.to}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => { setSel({ kind: 'route', id: r.id }); setSheet('open'); }}>
             <span className="n" style={{ background: r.color, color: r.tx }}>{r.num}</span>
-            <span className="m"><small>{TYPES[r.type]} · {r.from}↔{r.to}</small><span>{r.buses}대 · {fmtHw(r.headway)}분</span></span></button>)}
+            <span className="m"><span><Icon n="bus" s={13} />{r.buses}</span><span><Icon n="clock" s={13} />{fmtHw(r.headway)}′</span></span></button>)}
         </div>
         <div id="panel">
           {sel?.kind === 'draft' && draft ? <DraftPanel dm={dm} game={game} draft={draft} ev={draftEval} setDraft={setDraft} onCancel={cancelDraft} onDone={finishDraft} />
             : sel?.kind === 'hex' ? <HexPanel dm={dm} cell={sel.cell} bin={bin} onStart={() => startDraft(latLngToCell(...cellToLatLng(sel.cell), 9))} />
             : route ? <RoutePanel dm={dm} game={game} r={route} bin={bin} toast={toast} onEdit={() => { setDraft({ stops: [...route.stops], type: route.type, buses: route.buses, editing: route }); setSel({ kind: 'draft' }); }}
-                onDelete={() => { game.routes = game.routes.filter(x => x !== route); setSel(null); redrawRoutes(); toast({ text: `${route.num}번을 폐선했어요. 버스 ${route.buses}대가 돌아왔어요.` }); }}
+                onDelete={() => { game.routes = game.routes.filter(x => x !== route); setSel(null); redrawRoutes(); toast({ text: <><Icon n="trash" s={14} />{route.num} <Icon n="bus" s={14} />+{route.buses}</> }); }}
                 onChange={() => { redrawRoutes(); rerender(); }} />
             : <CompanyPanel game={game} />}
         </div>
@@ -199,22 +203,28 @@ function GameView({ dm }: { dm: Demand }) {
 
       {help && <div className="help" onClick={() => setHelp(false)}><div className="box">
         <h2>화면 설명</h2>
-        <p><b>위:</b> 시각과 속도(정지·1배속·4배속), 운행 중인 버스 / 보유 버스. 아랫줄은 오늘 수송과 목표, 목표 페이스, 연속 미달 표시예요.</p>
-        <div className="legend-big"><div className="lt">{LAYER_NAME[layer]} · 지금 시간대</div>
+        <div className="legend-big"><div className="lt"><Icon n={LAYER_ICON[layer]} s={12} /> {LAYER_NAME[layer]} · 지금 시간대</div>
           <svg viewBox="0 0 320 60" aria-hidden="true"><g fill="none" stroke="#1D1D1B" strokeOpacity="0.3">{[32, 96, 160, 224, 288].map(x => <path key={x} d={`M${x} 6 L${x + 22} 18 L${x + 22} 42 L${x} 54 L${x - 22} 42 L${x - 22} 18 Z`} />)}</g>
           <g fill="#FF48B0">{[4, 8, 12, 16, 20].map((r, i) => <circle key={r} cx={32 + i * 64} cy="30" r={r} />)}</g></svg>
           <div className="ends"><span>적음</span><span>많음</span></div></div>
-        <p><b>수요 레이어:</b> 왼쪽 아래 버튼을 누를 때마다 출발 → 도착 → 미충족(버스가 닿지 않는 곳, 칸 전체가 옅은 핑크)으로 바뀌어요.</p>
-        <p><b>지도:</b> 핑크 점이 클수록 지금 시간대 수요가 많아요. 헥사곤을 누르면 그 칸에서 가고 싶은 곳(파랑 실선)과 오고 싶은 곳(주황 점선)이 보여요.</p>
-        <p><b>노선:</b> + 새 노선을 누르고 헥사곤을 하나씩 탭하면 그 칸마다 정류장이 생겨요. 투입할 버스 대수를 정하면 배차간격이 계산돼요.</p>
+        <dl className="icons">
+          <dt><Icon n="out" /></dt><dd>출발 수요</dd><dt><Icon n="in" /></dt><dd>도착 수요</dd><dt><Icon n="gap" /></dt><dd>버스가 닿지 않는 수요</dd>
+          <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
+          <dt><Icon n="clock" /></dt><dd>배차간격 (′ = 분)</dd><dt><Icon n="loop" /></dt><dd>한 바퀴 시간</dd><dt><Icon n="cap" /></dt><dd>시간당 정원</dd>
+          <dt><Icon n="up" /><Icon n="down" /></dt><dd>목표 페이스 넘김/부족</dd><dt><span className="streak"><i className="on" /><i /><i /></span></dt><dd>연속 미달 (3칸이면 게임 오버)</dd>
+          <dt><Icon n="trunk" /><Icon n="branch" /><Icon n="circ" /></dt><dd>간선 · 지선 · 순환</dd>
+          <dt><Icon n="b0" /><Icon n="b1" /><Icon n="b2" /><Icon n="b3" /><Icon n="b4" /></dt><dd>출근 · 낮 · 퇴근 · 저녁 · 심야</dd>
+        </dl>
+        <p><b>노선:</b> + 를 누르고 헥사곤을 하나씩 탭하면 그 칸마다 정류장이 생겨요. 투입할 버스 대수를 정하면 배차간격이 계산돼요. 정류장이 많을수록 한 바퀴가 길어져 간격이 벌어져요.</p>
+        <p><b>지도:</b> 헥사곤을 누르면 그 칸에서 가고 싶은 곳(파랑 실선)과 오고 싶은 곳(주황 점선)이 보여요.</p>
         <p><b>규칙:</b> 매일 05시 정산. 목표의 150%를 3일 연속 넘기면 버스 +10대, 3일 연속 목표를 못 채우면 게임 오버예요.</p>
       </div></div>}
 
-      {game.over && <div className="over"><div className="box">
-        <svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z M12 10v5 M12 18h.01" /></svg>
-        <h2>게임 오버</h2>
-        <p>{RULES.maxMiss}일 연속 하루 수송 목표를 채우지 못했어요. 버스 {game.fleet}대로 {game.day - 1}일을 버텼어요.</p>
-        <button className="btn primary" onClick={() => location.reload()}>처음부터 다시</button>
+      {game.over && <div className="over"><div className="box" aria-label="게임 오버">
+        <Icon n="warn" s={40} />
+        <div className="big">D{game.day - 1}</div>
+        <div className="stat"><Icon n="bus" s={18} />{game.fleet}</div>
+        <button className="btn primary" onClick={() => location.reload()} aria-label="처음부터 다시"><Icon n="again" s={20} /></button>
       </div></div>}
     </div></div>
   );
@@ -235,6 +245,9 @@ function flowsOf(dm: Demand, cell: string, bin: number) {
   return { flows, out };
 }
 
+const Stat = ({ i, v, label, warn }: { i: string; v: React.ReactNode; label: string; warn?: boolean }) =>
+  <div className={warn ? 'warn' : ''} aria-label={label}><Icon n={i} s={15} /><b>{v}</b></div>;
+
 function HexPanel({ dm, cell, bin, onStart }: { dm: Demand; cell: string; bin: number; onStart: () => void }) {
   const [lat, lng] = cellToLatLng(cell), c9 = dm.byId.get(latLngToCell(lat, lng, 9));
   const res = parseInt(cell[1], 16) & 15;
@@ -244,67 +257,63 @@ function HexPanel({ dm, cell, bin, onStart }: { dm: Demand; cell: string; bin: n
   const { out } = flowsOf(dm, cell, bin), maxV = Math.max(1, ...out.map(o => o.v));
   const peak = Math.max(...dm.bins.map((_, b) => Math.max(perH(agg.O, b), perH(agg.D, b))));
   return <>
-    <div><h2>{dm.dongs[c9.dong].gu} {dm.dongs[c9.dong].n}</h2><div className="sub">헥사곤 {res === 9 ? '정류장 칸' : res === 8 ? '중간 칸' : '큰 칸'} · {cell}</div></div>
-    <div className="quick"><div><span>출발 (지금)</span><b>{fmt(perH(agg.O, bin))}명/시</b></div><div><span>도착 (지금)</span><b>{fmt(perH(agg.D, bin))}명/시</b></div><div><span>하루 출발</span><b>{fmt(agg.O.reduce((a, b) => a + b, 0))}</b></div></div>
-    <div><h3>시간대별 수요 (시간당)</h3><div className="bins">{dm.bins.map((b, i) => <div key={i} className={i === bin ? 'now' : ''}>
-      <span className="bo" style={{ height: `${perH(agg.O, i) / peak * 100}%` }} /><span className="bd" style={{ height: `${perH(agg.D, i) / peak * 100}%` }} /><small>{b.name}</small></div>)}</div>
-      <div className="legend-inline"><span><i style={{ background: '#0072B2' }} />출발</span><span><i style={{ background: '#D55E00' }} />도착</span></div></div>
-    {(['out', 'in'] as const).map(k => <div key={k}><h3>{k === 'out' ? '→ 여기서 가고 싶은 곳 (파랑 실선)' : '← 여기로 오고 싶은 곳 (주황 점선)'}</h3>
+    <div className="head" style={{ justifyContent: 'space-between' }}><h2>{dm.dongs[c9.dong].gu} {dm.dongs[c9.dong].n}</h2>
+      <button className="btn primary icon" onClick={onStart} aria-label="여기서 노선 시작">+<Icon n="route" s={18} /></button></div>
+    <div className="quick"><Stat i="out" v={`${fmt(perH(agg.O, bin))}/h`} label="지금 시간당 출발" /><Stat i="in" v={`${fmt(perH(agg.D, bin))}/h`} label="지금 시간당 도착" /><Stat i="person" v={`Σ ${fmt(agg.O.reduce((a, b) => a + b, 0))}`} label="하루 출발" /></div>
+    <div><div className="bins">{dm.bins.map((b, i) => <div key={i} className={i === bin ? 'now' : ''} aria-label={`${b.name} 출발 ${fmt(perH(agg.O, i))}, 도착 ${fmt(perH(agg.D, i))} (시간당)`}>
+      <span className="bo" style={{ height: `${perH(agg.O, i) / peak * 100}%` }} /><span className="bd" style={{ height: `${perH(agg.D, i) / peak * 100}%` }} /><small><Icon n={`b${i}`} s={14} /></small></div>)}</div>
+      <div className="legend-inline"><span><i style={{ background: '#0072B2' }} /><Icon n="out" s={13} label="출발" /></span><span><i style={{ background: '#D55E00' }} /><Icon n="in" s={13} label="도착" /></span></div></div>
+    {(['out', 'in'] as const).map(k => <div key={k}><h3 className="ih"><Icon n={k} s={14} label={k === 'out' ? '여기서 가고 싶은 곳' : '여기로 오고 싶은 곳'} /><span className={`swatch ${k}`} aria-hidden="true" /></h3>
       <div className="list">{out.filter(o => o.out === (k === 'out')).map(o => <div className="it" key={o.name}><span>{o.name}</span><span className="b" style={{ width: `${o.v / maxV * 80}px` }} /><span>{fmt(o.v / binHours(dm.bins[bin]))}</span></div>)}</div></div>)}
-    <div className="sub">동 단위 지금 시간대 상위 5곳. 시간대가 바뀌면 출근·퇴근 방향에 따라 달라져요.</div>
-    <div className="row"><button className="btn primary" onClick={onStart}>여기서 노선 시작</button></div>
   </>;
+}
+
+function Stepper({ n, min, max, onSet, free }: { n: number; min: number; max: number; onSet: (n: number) => void; free: number }) {
+  return <div className="hw"><button aria-label="버스 빼기" disabled={n <= min} onClick={() => onSet(n - 1)}>−</button>
+    <b aria-label={`투입 버스 ${n}대`}><Icon n="bus" s={18} />{n}</b>
+    <button aria-label="버스 더 넣기" disabled={n >= max} onClick={() => onSet(n + 1)}>+</button>
+    <span className="need" aria-label={`남은 버스 ${free}대`}><Icon n="bus" s={13} />{free}</span></div>;
 }
 
 function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange }: { dm: Demand; game: Game; r: Route; bin: number; toast: (t: Toast) => void; onEdit: () => void; onDelete: () => void; onChange: () => void }) {
   const [armed, setArmed] = useState(false);
   const free = game.fleet - game.usedBuses(r), demand = r.demand.reduce((a, b) => a + b, 0), carried = r.carried.reduce((a, b) => a + b, 0);
   const crowd = crowdAt(dm, r, bin);
-  const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: `남은 버스가 없어요. 보유 ${game.fleet}대를 모두 쓰고 있어요.`, kind: 'warn' }); updateRoute(dm, r, r.stops, n); onChange(); };
+  const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); updateRoute(dm, r, r.stops, n); onChange(); };
   return <>
     <div className="head"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span>
-      <div><h2>{r.from} ↔ {r.to}</h2><div className="sub">{TYPES[r.type]}버스 · 정류장 {r.stops.length}곳 · {PATTERNS[r.pattern]}{r.example && <span className="ex">예시</span>}</div></div></div>
-    <div><h3>투입 버스</h3><div className="hw"><button aria-label="버스 빼기" disabled={r.buses <= 1} onClick={() => setN(r.buses - 1)}>−</button><b>{r.buses}대</b>
-      <button aria-label="버스 더 넣기" disabled={free - r.buses <= 0} onClick={() => setN(r.buses + 1)}>+</button>
-      <span className="need">배차 <b className="inline">{fmtHw(r.headway)}분</b><br />남은 버스 {free - r.buses}대</span></div></div>
-    <div className="quick"><div><span>하루 수요</span><b>{fmt(demand)}</b></div><div><span>하루 수송</span><b>{fmt(carried)}</b></div><div><span>놓침</span><b>{demand - carried > 1 && <span className="warn-i" aria-hidden="true" />}{fmt(demand - carried)}</b></div></div>
-    <div><h3>지금 혼잡도</h3><div className="crowd"><i style={{ width: `${Math.min(100, crowd * 100)}%`, background: crowd > 1 ? '#D55E00' : crowd > 0.8 ? '#E69F00' : '#0072B2' }} /></div>
-      <div className="sub">{crowd > 1 ? <><span className="warn-i" aria-hidden="true" />정원 초과 {Math.round(crowd * 100)}% · 정류장에 남는 승객이 생겨요</> : crowd > 0.8 ? `붐빔 ${Math.round(crowd * 100)}%` : `여유 ${Math.round(crowd * 100)}%`}</div></div>
-    <div><h3>시간대별 처리할 수요 (배차는 하루 종일 {fmtHw(r.headway)}분)</h3>
-      <table className="segt"><thead><tr><th>시간대</th><th>수요/시</th><th>정원/시</th><th /></tr></thead><tbody>
-        {dm.bins.map((b, i) => { const d = r.demand[i] / binHours(b); return <tr key={i} className={i === bin ? 'now' : ''}><td>{b.name} {b.from}–{b.to}시</td><td>{fmt(d)}</td><td>{fmt(r.capH)}</td><td>{d > r.capH ? <span className="warn-i" aria-label="정원 초과" /> : '✓'}</td></tr>; })}
-      </tbody></table></div>
-    <dl className="kv"><dt>노선 길이</dt><dd>{r.lenKm.toFixed(1)}km</dd><dt>한 바퀴</dt><dd>{Math.round(r.cyc)}분</dd><dt>시간당 정원</dt><dd>{fmt(r.capH)}명</dd></dl>
-    <div className="row"><button className="btn" onClick={onEdit}>노선 수정</button><button className="btn danger" onClick={() => (armed ? onDelete() : setArmed(true))}>{armed ? '한 번 더 누르면 폐선' : '폐선'}</button></div>
+      <div><h2>{r.from} ↔ {r.to}</h2><div className="sub"><Icon n={r.type} s={14} label={TYPES[r.type]} /> <Icon n="stop" s={13} label="정류장" />{r.stops.length}{r.example && <span className="ex">EX</span>}</div></div>
+      <div className="acts"><button className="btn icon" onClick={onEdit} aria-label="노선 수정"><Icon n="edit" s={18} /></button>
+        <button className={`btn icon danger ${armed ? 'armed' : ''}`} onClick={() => (armed ? onDelete() : setArmed(true))} aria-label={armed ? '한 번 더 누르면 폐선' : '폐선'}><Icon n="trash" s={18} />{armed && '?'}</button></div></div>
+    <Stepper n={r.buses} min={1} max={free} free={free - r.buses} onSet={setN} />
+    <div className="quick"><Stat i="clock" v={`${fmtHw(r.headway)}′`} label="배차간격" /><Stat i="loop" v={`${Math.round(r.cyc)}′`} label="한 바퀴" /><Stat i="ruler" v={`${r.lenKm.toFixed(1)}km`} label="노선 길이" /></div>
+    <div className="quick"><Stat i="person" v={fmt(carried)} label="하루 수송" /><Stat i="miss" v={fmt(demand - carried)} label="하루 놓침" warn={demand - carried > 1} /><Stat i="cap" v={`${fmt(r.capH)}/h`} label="시간당 정원" /></div>
+    <div className="crowd" role="img" aria-label={`지금 혼잡도 ${Math.round(crowd * 100)}%`}><i style={{ width: `${Math.min(100, crowd * 100)}%`, background: crowd > 1 ? '#D55E00' : crowd > 0.8 ? '#E69F00' : '#0072B2' }} /><span>{crowd > 1 && <Icon n="warn" s={12} />}{Math.round(crowd * 100)}%</span></div>
+    <table className="segt"><thead><tr><th /><th><Icon n="person" s={13} label="수요" />/h</th><th><Icon n="cap" s={13} label="정원" />/h</th><th /></tr></thead><tbody>
+      {dm.bins.map((b, i) => { const d = r.demand[i] / binHours(b); return <tr key={i} className={i === bin ? 'now' : ''}><td><Icon n={`b${i}`} s={14} label={b.name} /> {hh(b.from)}–{hh(b.to)}</td><td>{fmt(d)}</td><td>{fmt(r.capH)}</td><td>{d > r.capH ? <Icon n="warn" s={14} label="정원 초과" className="bad" /> : <Icon n="ok" s={14} label="여유" className="good" />}</td></tr>; })}
+    </tbody></table>
   </>;
 }
 
 function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Demand; game: Game; draft: Draft; ev: ReturnType<typeof evalRoute> | null; setDraft: (d: Draft) => void; onCancel: () => void; onDone: () => void }) {
   const free = game.fleet - game.usedBuses(draft.editing), ok = draft.buses <= free;
-  const day = ev ? ev.demand.reduce((a, b) => a + b, 0) : 0;
+  const day = ev ? ev.carried.reduce((a, b) => a + b, 0) : 0;
   return <>
-    <div className="head" style={{ justifyContent: 'space-between' }}><h2>{draft.editing ? `${draft.editing.num}번 노선 수정` : '새 노선'}</h2><span className="sub">정류장 {draft.stops.length}곳</span></div>
-    <div className="quick"><div><span>하루 수요</span><b>{ev ? fmt(day) : '–'}</b></div><div><span>배차간격</span><b>{ev ? `${fmtHw(ev.headway)}분` : '–'}</b></div><div><span>남은 버스</span><b>{free}대</b></div></div>
-    <div className="row"><button className="btn" disabled={!draft.stops.length} onClick={() => setDraft({ ...draft, stops: draft.stops.slice(0, -1) })}>되돌리기</button>
-      <button className="btn" onClick={onCancel}>취소</button>
-      <button className="btn primary" disabled={draft.stops.length < 2 || !ok} onClick={onDone}>{draft.editing ? '수정 완료' : '개설'}</button></div>
-    <div><h3>투입 버스</h3><div className="hw"><button aria-label="버스 빼기" disabled={draft.buses <= 1} onClick={() => setDraft({ ...draft, buses: draft.buses - 1 })}>−</button><b>{draft.buses}대</b>
-      <button aria-label="버스 더 넣기" disabled={draft.buses >= free} onClick={() => setDraft({ ...draft, buses: draft.buses + 1 })}>+</button>
-      <span className="need">{!ok ? '남은 버스가 모자라요.' : ev ? `배차 ${fmtHw(ev.headway)}분 · 한 바퀴 ${Math.round(ev.cyc)}분` : '버스를 많이 넣을수록 배차간격이 짧아져요.'}</span></div></div>
-    {!draft.editing && <div><h3>노선 종류</h3><div className="seg" role="group">{(Object.keys(TYPES) as RouteType[]).map(k => <button key={k} aria-pressed={draft.type === k} onClick={() => setDraft({ ...draft, type: k })}>{TYPES[k]}</button>)}</div></div>}
-    {ev && <dl className="kv"><dt>길이</dt><dd>{ev.lenKm.toFixed(1)}km</dd><dt>한 바퀴</dt><dd>{Math.round(ev.cyc)}분</dd><dt>하루 수송 (정원 반영)</dt><dd>{fmt(ev.carried.reduce((a, b) => a + b, 0))}명</dd></dl>}
-    <div className="hint">헥사곤을 하나 탭할 때마다 그 칸에 정류장이 생겨요. 떨어진 칸을 탭하면 사이 칸을 지나가지만 정류장은 탭한 칸에만 생겨요. 정류장은 걸어서 닿는 이웃 칸(약 350m)까지 승객을 모아요.</div>
+    <div className="head" style={{ justifyContent: 'space-between' }}>
+      <h2 aria-label={draft.editing ? `${draft.editing.num}번 수정` : '새 노선'}>{draft.editing ? <><Icon n="edit" s={18} /> {draft.editing.num}</> : <>+<Icon n="route" s={20} /></>} <span className="sub"><Icon n="stop" s={14} label="정류장" />{draft.stops.length}</span></h2>
+      <div className="acts">
+        <button className="btn icon" disabled={!draft.stops.length} onClick={() => setDraft({ ...draft, stops: draft.stops.slice(0, -1) })} aria-label="되돌리기"><Icon n="undo" s={18} /></button>
+        <button className="btn icon" onClick={onCancel} aria-label="취소"><Icon n="x" s={18} /></button>
+        <button className="btn icon primary" disabled={draft.stops.length < 2 || !ok} onClick={onDone} aria-label={draft.editing ? '수정 완료' : '개설'}><Icon n="ok" s={20} /></button></div></div>
+    <Stepper n={draft.buses} min={1} max={free} free={free - draft.buses} onSet={n => setDraft({ ...draft, buses: n })} />
+    <div className="quick"><Stat i="clock" v={ev ? `${fmtHw(ev.headway)}′` : '–'} label="배차간격" /><Stat i="loop" v={ev ? `${Math.round(ev.cyc)}′` : '–'} label="한 바퀴" /><Stat i="person" v={ev ? fmt(day) : '–'} label="하루 수송 예상" /></div>
+    {!draft.editing && <div className="seg" role="group" aria-label="노선 종류">{(Object.keys(TYPES) as RouteType[]).map(k => <button key={k} aria-pressed={draft.type === k} aria-label={TYPES[k]} onClick={() => setDraft({ ...draft, type: k })}><Icon n={k} s={20} /></button>)}</div>}
   </>;
 }
 
 function CompanyPanel({ game }: { game: Game }) {
-  const used = game.usedBuses();
   return <>
-    <div><h2>회사 현황</h2><div className="sub">한강운수 · {game.day}일차</div></div>
-    <div className="quick"><div><span>운행 버스</span><b>{used}/{game.fleet}대</b></div><div><span>오늘 수송</span><b>{fmt(game.todayRiders)}</b></div><div><span>오늘 놓침</span><b>{fmt(game.todayMissed)}</b></div></div>
-    <dl className="kv"><dt>하루 목표</dt><dd>{fmt(game.target)}명 (버스 {game.goalFleet}대 × {RULES.perBus})</dd><dt>연속 미달</dt><dd>{game.miss}/{RULES.maxMiss}일</dd><dt>증차 기준</dt><dd>150% 넘김 {game.hit}/{RULES.bonusDays}일</dd><dt>노선</dt><dd>{game.routes.length}개</dd></dl>
-    <div className="hint"><b>규칙</b> 매일 05시 정산. 목표의 150%를 {RULES.bonusDays}일 연속 넘기면 버스 +{RULES.fleetStep}대(새 목표는 하루 뒤부터), {RULES.maxMiss}일 연속 목표 미달이면 게임 오버예요.</div>
-    <div className="hint"><b>노선 만들기</b> + 새 노선을 누르고 헥사곤을 하나씩 탭하면 그 칸에 정류장이 생겨요. 노선마다 투입할 버스 대수를 정하면 배차간격이 계산돼요. 정류장이 많을수록 한 바퀴가 길어져 간격이 벌어져요.</div>
+    <div className="quick"><Stat i="flag" v={fmt(game.target)} label={`하루 목표 (버스 ${game.goalFleet}대 × ${RULES.perBus})`} /><Stat i="person" v={fmt(game.todayRiders)} label="오늘 수송" /><Stat i="miss" v={fmt(game.todayMissed)} label="오늘 놓침" /></div>
+    <div className="quick"><Stat i="route" v={game.routes.length} label="노선 수" /><Stat i="up" v={`${game.hit}/${RULES.bonusDays}`} label="목표 150% 연속 달성 일수" /><Stat i="warn" v={`${game.miss}/${RULES.maxMiss}`} label="연속 미달 일수" warn={game.miss > 0} /></div>
   </>;
 }
-

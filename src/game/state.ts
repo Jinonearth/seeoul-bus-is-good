@@ -2,7 +2,8 @@
 import { type Demand, NB, binOf, binHours } from './data';
 import { type Route, RULES, moveBus } from './model';
 
-export type Toast = { text: string; kind?: 'good' | 'warn' };
+// 정산 결과: 화면이 아이콘과 숫자로 보여줘요
+export type Settle = { day: number; got: number; target: number; ok: boolean; miss: number; hit: number; grow: number };
 
 export class Game {
   dm: Demand;
@@ -17,7 +18,7 @@ export class Game {
   todayMissed = 0;
   over = false;
   routes: Route[] = [];
-  onToast: (t: Toast) => void = () => {};
+  onSettle: (s: Settle) => void = () => {};
   onOver: () => void = () => {};
 
   constructor(dm: Demand) { this.dm = dm; }
@@ -63,14 +64,13 @@ export class Game {
     if (got < t) {
       this.miss++; this.hit = 0;
       if (this.miss >= RULES.maxMiss) { this.over = true; this.onOver(); return; }
-      this.onToast({ text: `${d}일차 정산: ${fmt(got)} / ${fmt(t)}명, 목표 미달 ${this.miss}일째예요. ${RULES.maxMiss}일 연속이면 게임 오버예요.`, kind: 'warn' });
+      this.onSettle({ day: d, got, target: t, ok: false, miss: this.miss, hit: 0, grow: 0 });
       return;
     }
     this.miss = 0; this.hit = got >= t * RULES.bonus ? this.hit + 1 : 0;
-    if (this.hit >= RULES.bonusDays) {
-      this.hit = 0; this.fleet += RULES.fleetStep; this.pendingFleet = this.fleet;
-      this.onToast({ text: `목표의 150%를 ${RULES.bonusDays}일 연속 넘겼어요. 버스 ${RULES.fleetStep}대가 늘었어요. 늘어난 목표는 모레부터예요.`, kind: 'good' });
-    } else this.onToast({ text: `${d}일차 정산: ${fmt(got)}명 수송, 목표 달성!${this.hit ? ` 150% 넘김 ${this.hit}/${RULES.bonusDays}일` : ''}`, kind: 'good' });
+    let grow = 0;
+    if (this.hit >= RULES.bonusDays) { this.hit = 0; grow = RULES.fleetStep; this.fleet += grow; this.pendingFleet = this.fleet; }
+    this.onSettle({ day: d, got, target: t, ok: true, miss: 0, hit: this.hit, grow });
   }
 
   // 하루 전체 수요(노선 합) 대비 지금까지 예상 수송
