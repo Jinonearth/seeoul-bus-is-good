@@ -1,39 +1,42 @@
 // 버스가 다니는 도로 그래프와 정류장 사이 길 찾기 (scripts/build_stop_snap.py가 만든 roads.json)
-// 일방통행은 아직 무시해요: 양방향 그래프
+// 간선은 한 방향(일방통행 그대로). 양방향 도로는 방향마다 간선이 따로 있어요.
+// 길 찾기는 "어느 간선으로 들어왔는지"를 상태로 삼아, 그 자리에서 거꾸로 꺾는 유턴을 막아요.
 
 type Graph = {
-  nx: Float64Array; ny: Float64Array;           // 교차점 위치 (m, 휴리스틱용)
-  nlng: Float64Array; nlat: Float64Array;
+  nx: Float64Array; ny: Float64Array; nlng: Float64Array; nlat: Float64Array;
   eu: Int32Array; ev: Int32Array; elen: Float64Array; ecost: Float64Array;
-  emid: number[][];                             // 간선 중간점 (lng·1e6, lat·1e6 차이)
-  adjStart: Int32Array; adjEdge: Int32Array;    // 교차점별 간선 목록 (CSR)
+  eh0: Int16Array; eh1: Int16Array;              // 간선 시작·끝 방향(도)
+  emid: number[][];
+  outStart: Int32Array; outEdge: Int32Array;     // 노드별 나가는 간선 (CSR)
 };
 
 const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540;
+const UTURN = 150;            // 이보다 크게 꺾으면 유턴
+const DETOUR_M = 6000;        // 유턴 없이 돌아가는 길이 이보다 길어지면 포기하고 유턴 허용
 let G: Graph | null = null;
 let loading: Promise<void> | null = null;
 
 export const roadsReady = () => G != null;
 
 export function loadRoads(base = import.meta.env.BASE_URL) {
-  loading ??= fetch(`${base}data/roads.json`).then(r => r.json()).then((j: { n: number[]; e: [number, number, number, number, number[]][] }) => {
+  loading ??= fetch(`${base}data/roads.json`).then(r => r.json()).then((j: { n: number[]; e: [number, number, number, number, number, number, number[]][] }) => {
     const nn = j.n.length / 2, ne = j.e.length;
     const g: Graph = {
       nx: new Float64Array(nn), ny: new Float64Array(nn), nlng: new Float64Array(nn), nlat: new Float64Array(nn),
-      eu: new Int32Array(ne), ev: new Int32Array(ne), elen: new Float64Array(ne), ecost: new Float64Array(ne), emid: new Array(ne),
-      adjStart: new Int32Array(nn + 1), adjEdge: new Int32Array(ne * 2),
+      eu: new Int32Array(ne), ev: new Int32Array(ne), elen: new Float64Array(ne), ecost: new Float64Array(ne),
+      eh0: new Int16Array(ne), eh1: new Int16Array(ne), emid: new Array(ne),
+      outStart: new Int32Array(nn + 1), outEdge: new Int32Array(ne),
     };
     for (let i = 0; i < nn; i++) { g.nlng[i] = j.n[2 * i] / 1e6; g.nlat[i] = j.n[2 * i + 1] / 1e6; g.nx[i] = g.nlng[i] * KX; g.ny[i] = g.nlat[i] * KY; }
-    j.e.forEach(([u, v, len, cost, mid], e) => { g.eu[e] = u; g.ev[e] = v; g.elen[e] = len; g.ecost[e] = cost; g.emid[e] = mid; g.adjStart[u + 1]++; g.adjStart[v + 1]++; });
-    for (let i = 0; i < nn; i++) g.adjStart[i + 1] += g.adjStart[i];
-    const fill = g.adjStart.slice(0, nn);
-    for (let e = 0; e < ne; e++) { g.adjEdge[fill[g.eu[e]]++] = e; g.adjEdge[fill[g.ev[e]]++] = e; }
+    j.e.forEach(([u, v, len, cost, h0, h1, mid], e) => { g.eu[e] = u; g.ev[e] = v; g.elen[e] = len; g.ecost[e] = cost; g.eh0[e] = h0; g.eh1[e] = h1; g.emid[e] = mid; g.outStart[u + 1]++; });
+    for (let i = 0; i < nn; i++) g.outStart[i + 1] += g.outStart[i];
+    const fill = g.outStart.slice(0, nn);
+    for (let e = 0; e < ne; e++) g.outEdge[fill[g.eu[e]]++] = e;
     G = g; cache.clear();
   });
   return loading;
 }
 
-// 간선 e의 모양 (u → v 방향, 끝점 포함)
 function edgeCoords(g: Graph, e: number): [number, number][] {
   const u = g.eu[e], v = g.ev[e], mid = g.emid[e];
   const out: [number, number][] = [[g.nlng[u], g.nlat[u]]];
@@ -44,26 +47,23 @@ function edgeCoords(g: Graph, e: number): [number, number][] {
 }
 const dist = (a: [number, number], b: [number, number]) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY);
 
-// 간선 e 위 거리 t0 → t1 사이 모양 (t0 > t1이면 거꾸로)
+// 간선 e 위 거리 t0 → t1 (t0 ≤ t1) 사이 모양
 function sub(g: Graph, e: number, t0: number, t1: number): [number, number][] {
-  const c = edgeCoords(g, e), rev = t0 > t1, a = Math.min(t0, t1), b = Math.max(t0, t1);
-  const out: [number, number][] = [];
-  let s = 0;
+  const c = edgeCoords(g, e), out: [number, number][] = [];
   const at = (p: [number, number], q: [number, number], k: number): [number, number] => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
+  let s = 0;
   for (let i = 1; i < c.length; i++) {
     const L = dist(c[i - 1], c[i]), s1 = s + L;
-    if (s1 >= a && s <= b && L > 0) {
-      if (!out.length) out.push(at(c[i - 1], c[i], Math.max(0, (a - s) / L)));
-      out.push(at(c[i - 1], c[i], Math.min(1, (b - s) / L)));
+    if (s1 >= t0 && s <= t1 && L > 0) {
+      if (!out.length) out.push(at(c[i - 1], c[i], Math.max(0, (t0 - s) / L)));
+      out.push(at(c[i - 1], c[i], Math.min(1, (t1 - s) / L)));
     }
-    s = s1;
-    if (s > b) break;
+    s = s1; if (s > t1) break;
   }
   if (!out.length) out.push(c[0]);
-  return rev ? out.reverse() : out;
+  return out;
 }
 
-// 최소 힙 (비용, 교차점)
 class Heap {
   k: number[] = []; v: number[] = [];
   get size() { return this.k.length; }
@@ -83,50 +83,58 @@ class Heap {
   }
 }
 
-export type Snap = [number, number, number, number];   // lng, lat, 간선, 간선 위 거리(m)
-const cache = new Map<string, [number, number][] | null>();
+// 정류장 후보: lng, lat, 간선, 간선 위 거리(m), 점수(m, 작을수록 좋은 자리)
+export type Cand = [number, number, number, number, number];
+export type Leg = { coords: [number, number][]; to: number; uturn: boolean };   // to = 도착한 후보 번호
 
-// 정류장 a → b 도로 길 (못 찾으면 null)
-export function roadBetween(ka: string, a: Snap, kb: string, b: Snap): [number, number][] | null {
+const cache = new Map<string, Leg | null>();
+// e 끝에서 f로 꺾는 각도(도, -180..180, 왼쪽 +)
+const turn = (g: Graph, e: number, f: number) => ((((g.eh0[f] - g.eh1[e]) % 360) + 540) % 360) - 180;
+const SHORT_M = 60;   // 이보다 짧은 간선(중앙분리대 유턴 연결로 등)을 사이에 둔 두 번 꺾기도 합쳐서 유턴인지 봐요
+
+// 후보 a에서 출발해 targets 중 하나에 서기까지. 유턴 없이 못 가면 유턴을 허용하고 uturn
+export function leg(a: Cand, targets: Cand[], key: string): Leg | null {
   const g = G; if (!g) return null;
-  const key = ka + '|' + kb;
-  if (cache.has(key)) return cache.get(key)!;
-  const back = cache.get(kb + '|' + ka);
-  if (back !== undefined) { const r = back && [...back].reverse(); cache.set(key, r); return r; }
-  const r = search(g, a, b); cache.set(key, r); return r;
+  const k = `${a[2]}:${a[3]}>${key}`;
+  if (cache.has(k)) return cache.get(k)!;
+  const r = search(g, a, targets, false) ?? search(g, a, targets, true);
+  cache.set(k, r); return r;
 }
 
-function search(g: Graph, a: Snap, b: Snap): [number, number][] | null {
-  const [, , ea, ta] = a, [, , eb, tb] = b;
-  const fa = g.ecost[ea] / (g.elen[ea] || 1), fb = g.ecost[eb] / (g.elen[eb] || 1);
-  let best = Infinity, bestEnd = -1, bestTail = 0;
-  if (ea === eb) { best = Math.abs(ta - tb) * fa; }
-  const nn = g.nx.length, gs = new Float64Array(nn).fill(Infinity), via = new Int32Array(nn).fill(-1), from = new Int32Array(nn).fill(-1);
-  const bx = b[0] * KX, by = b[1] * KY, h = (n: number) => Math.hypot(g.nx[n] - bx, g.ny[n] - by);
-  const heap = new Heap();
-  const start = (n: number, c: number) => { if (c < gs[n]) { gs[n] = c; via[n] = -2; heap.push(c + h(n), n); } };
-  start(g.eu[ea], ta * fa); start(g.ev[ea], (g.elen[ea] - ta) * fa);
-  const tailU = tb * fb, tailV = (g.elen[eb] - tb) * fb;
+function search(g: Graph, a: Cand, targets: Cand[], allowU: boolean): Leg | null {
+  const [, , ea, ta] = a, f = (e: number) => g.ecost[e] / (g.elen[e] || 1);
+  const byEdge = new Map<number, number[]>();
+  targets.forEach((t, i) => (byEdge.get(t[2]) ?? byEdge.set(t[2], []).get(t[2])!).push(i));
+  let best = Infinity, bestPrev = -1, bestTo = -1, direct = false;
+  for (const i of byEdge.get(ea) ?? []) if (targets[i][3] >= ta) { const c = (targets[i][3] - ta) * f(ea) + targets[i][4]; if (c < best) { best = c; bestTo = i; direct = true; } }
+  const gx = targets[0][0] * KX, gy = targets[0][1] * KY;
+  const h = (e: number) => Math.hypot(g.nx[g.ev[e]] - gx, g.ny[g.ev[e]] - gy);
+  const cap = dist([a[0], a[1]], [targets[0][0], targets[0][1]]) * 3 + DETOUR_M;
+  const gs = new Map<number, number>(), prev = new Map<number, number>(), tin = new Map<number, number>(), heap = new Heap();
+  const g0 = (g.elen[ea] - ta) * f(ea); gs.set(ea, g0); prev.set(ea, -1); heap.push(g0 + h(ea), ea);
   while (heap.size) {
-    const [f, n] = heap.pop();
-    if (f >= best) break;
-    const c = gs[n]; if (f - h(n) > c + 1e-6) continue;
-    if (n === g.eu[eb] && c + tailU < best) { best = c + tailU; bestEnd = n; bestTail = 0; }
-    if (n === g.ev[eb] && c + tailV < best) { best = c + tailV; bestEnd = n; bestTail = 1; }
-    for (let i = g.adjStart[n]; i < g.adjStart[n + 1]; i++) {
-      const e = g.adjEdge[i], o = g.eu[e] === n ? g.ev[e] : g.eu[e], nc = c + g.ecost[e];
-      if (nc < gs[o]) { gs[o] = nc; via[o] = e; from[o] = n; heap.push(nc + h(o), o); }
+    const [key, e] = heap.pop();
+    if (key >= best) break;
+    const c = gs.get(e)!; if (key - h(e) > c + 1e-6) continue;
+    if (!allowU && c > cap) break;
+    const n = g.ev[e];
+    for (let i = g.outStart[n]; i < g.outStart[n + 1]; i++) {
+      const o = g.outEdge[i];
+      const d = turn(g, e, o);
+      if (!allowU && (Math.abs(d) > UTURN || (g.elen[e] < SHORT_M && Math.abs(d + (tin.get(e) ?? 0)) > UTURN))) continue;
+      for (const ti of byEdge.get(o) ?? []) { const tc = c + targets[ti][3] * f(o) + targets[ti][4]; if (tc < best) { best = tc; bestTo = ti; bestPrev = e; direct = false; } }
+      const nc = c + g.ecost[o];
+      if (nc < (gs.get(o) ?? Infinity)) { gs.set(o, nc); prev.set(o, e); tin.set(o, d); heap.push(nc + h(o), o); }
     }
   }
-  if (bestEnd < 0) return best < Infinity ? sub(g, ea, ta, tb) : null;
-  // 거꾸로 따라가며 간선 목록
-  const chain: [number, number][] = [];   // [간선, 출발 교차점]
-  for (let n = bestEnd; via[n] !== -2; n = from[n]) chain.push([via[n], from[n]]);
-  chain.reverse();
-  const s0 = chain.length ? chain[0][1] : bestEnd;
-  const out: [number, number][] = sub(g, ea, ta, s0 === g.eu[ea] ? 0 : g.elen[ea]);
-  for (const [e, n] of chain) { const c = edgeCoords(g, e); if (n !== g.eu[e]) c.reverse(); out.push(...c.slice(1)); }
-  const tail = sub(g, eb, bestTail === 0 ? 0 : g.elen[eb], tb);
-  out.push(...tail.slice(1));
-  return out;
+  if (bestTo < 0) return null;
+  const T = targets[bestTo];
+  if (direct) return { coords: sub(g, ea, ta, T[3]), to: bestTo, uturn: allowU };
+  const chain: number[] = [];
+  for (let e = bestPrev; e !== -1; e = prev.get(e)!) chain.push(e);
+  chain.reverse();   // chain[0] = ea
+  const out = sub(g, ea, ta, g.elen[ea]);
+  for (const e of chain.slice(1)) out.push(...edgeCoords(g, e).slice(1));
+  out.push(...sub(g, T[2], 0, T[3]).slice(1));
+  return { coords: out, to: bestTo, uturn: allowU };
 }

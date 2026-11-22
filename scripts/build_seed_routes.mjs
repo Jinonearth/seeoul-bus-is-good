@@ -1,4 +1,5 @@
-// 예시 노선 정류장 뽑기: 지나는 점들을 도로로 잇고, 그 길 위 약 450m마다 도로 위 자리가 길에서 60m 안인 정류장 가능 셀
+// 예시 노선 정류장 뽑기: 지나는 점들을 도로로 잇고, 그 길 위 약 450m마다 도로 위 자리가 길에서 60m 안인 정류장 가능 셀.
+// 그다음 한 바퀴에서 정류장 사이가 직선의 2.2배 넘게 돌아가는 정류장을 빼요
 // node scripts/build_seed_routes.mjs  → src/game/seeds.ts
 import { createServer } from 'vite';
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540, d = (a, b) => 
 const near = (lng, lat) => h3.gridDiskDistances(h3.latLngToCell(lat, lng, 9), 3).flat().find(D.stopable);
 function seed(pts, gap = 450) {
   const way = pts.map(([lng, lat]) => near(lng, lat));
-  const path = M.routePath(way).path;   // 도로 길
+  const rp = M.routePath(way), path = rp.path.slice(0, rp.outN + 1);   // 가는 길 도로
   const stops = [way[0]]; let acc = 0;
   for (let i = 1; i < path.length; i++) {
     const L = d(path[i-1], path[i]); let s = 0;
@@ -25,10 +26,20 @@ function seed(pts, gap = 450) {
     acc += L - s;
   }
   const last = way[way.length-1]; if (stops[stops.length-1] !== last) stops.push(last);
+  // 가는 길·오는 길에서 크게 돌아가게 만드는 정류장(도로 위 자리가 한 방향에만 있는 곳 등)은 빼요
+  for (let round = 0; round < 40; round++) {
+    const r = M.routePath(stops), v = r.visits; let worst = -1, wr = 2.2;
+    for (let k = 1; k < v.length; k++) {
+      const a = D.snapped(stops[v[k - 1].i]), b = D.snapped(stops[v[k].i]), ratio = (v[k].s - v[k - 1].s) * 1000 / Math.max(d(a, b), 150);
+      const i = v[k].i; if (ratio > wr && i !== 0 && i !== stops.length - 1) { wr = ratio; worst = i; }
+    }
+    if (worst < 0) break;
+    stops.splice(worst, 1);
+  }
   return stops;
 }
 const T = seed([[127.062, 37.655], [127.056, 37.636], [127.047, 37.618], [127.03, 37.602], [127.012, 37.588], [126.998, 37.571], [126.992, 37.566], [127.007, 37.548], [127.017, 37.535], [127.027, 37.519], [127.035, 37.502]]);
 const B = seed([[126.93, 37.484], [126.918, 37.486], [126.908, 37.487], [126.896, 37.484], [126.885, 37.48], [126.875, 37.495]]);
-for (const [st, n] of [[T, 18], [B, 6]]) { const r = M.makeRoute(dm, 'trunk', st, n); const segs=[]; for (let i=1;i<st.length;i++){ const dd=r.stopAt[i]-r.stopAt[i-1]; segs.push((dd/ (d(D.snapped(st[i-1]),D.snapped(st[i]))/1000)).toFixed(1)); } console.log(st.length, r.lenKm.toFixed(1), segs.join(' ')); }
+for (const st of [T, B]) { const t = performance.now(); const rp = M.routePath(st); console.log(st.length, 'stops', rp.lenKm.toFixed(1), 'km one way', (performance.now() - t).toFixed(0), 'ms', 'uturn', rp.uturn, 'broken', rp.broken); }
 fs.writeFileSync('src/game/seeds.ts', `// scripts/build_seed_routes.mjs가 만든 예시 노선 정류장 (res9 셀). 도로 데이터를 다시 만들면 이것도 다시 만들어요\nexport const SEED_TRUNK = ${JSON.stringify(T)};\nexport const SEED_BRANCH = ${JSON.stringify(B)};\n`);
 await sv.close();

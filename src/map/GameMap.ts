@@ -2,7 +2,7 @@
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import { cellToBoundary, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
-import { type Demand, snapped, stopable } from '../game/data';
+import { type Demand, stopable } from '../game/data';
 import { type Route, posAt, crowdAt, WALK } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
 
@@ -88,8 +88,8 @@ export class GameMap {
       paint: { 'circle-color': '#FFFFFF', 'circle-stroke-color': INK, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3.5, 14, 6], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 3], 'circle-opacity': ['case', ['get', 'dim'], 0.3, 1], 'circle-stroke-opacity': ['case', ['get', 'dim'], 0.3, 1] } });
     // 그리는 중인 노선
     m.addSource('draft', { type: 'geojson', data: fc() });
-    m.addLayer({ id: 'draft-case', type: 'line', source: 'draft', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': INK, 'line-width': 11 } });
-    m.addLayer({ id: 'draft-line', type: 'line', source: 'draft', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 6 } });
+    m.addLayer({ id: 'draft-case', type: 'line', source: 'draft', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': INK, 'line-width': ['case', ['get', 'back'], 6, 11] } });
+    m.addLayer({ id: 'draft-line', type: 'line', source: 'draft', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['get', 'back'], 3, 6] } });
     m.addLayer({ id: 'draft-pt', type: 'circle', source: 'draft', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': ['get', 'color'], 'circle-radius': ['case', ['get', 'first'], 8, 6], 'circle-stroke-color': INK, 'circle-stroke-width': 2.5 } });
     // 버스: 줌아웃 = 흰 네모, 줌인 = 번호판(먹 바탕 + 노선색 띠 + 흰 번호), 정차 중 +N, 만차 경고 삼각형
     this.addSquare(); this.addWarn();
@@ -181,7 +181,7 @@ export class GameMap {
       this.plate(r);
       const dim = focus != null && focus !== r.id;
       lines.push({ type: 'Feature', properties: { id: r.id, num: r.num, color: r.color, pattern: r.pattern, dim }, geometry: { type: 'LineString', coordinates: r.path } });
-      for (const s of r.stops) stops.push({ type: 'Feature', properties: { dim }, geometry: { type: 'Point', coordinates: snapped(s) } });
+      for (const p of r.stopPts) stops.push({ type: 'Feature', properties: { dim }, geometry: { type: 'Point', coordinates: p } });
     }
     (this.map.getSource('routes') as GeoJSONSource).setData(fc(lines));
     (this.map.getSource('stops') as GeoJSONSource).setData(fc(stops));
@@ -189,10 +189,14 @@ export class GameMap {
 
   setDrawing(on: boolean) { this.map.setLayoutProperty('hex9-ns', 'visibility', on ? 'visible' : 'none'); }
 
-  setDraft(path: [number, number][], stops: string[], color: string) {
+  // 그리는 중인 노선: 가는 길은 굵게, 오는 길은 가늘게. 버스가 서는 도로 위 자리마다 점
+  setDraft(path: [number, number][], outN: number, pts: [number, number][], color: string) {
     const f: GeoJSON.Feature[] = [];
-    if (path.length > 1) f.push({ type: 'Feature', properties: { color }, geometry: { type: 'LineString', coordinates: path } });
-    stops.forEach((s, i) => f.push({ type: 'Feature', properties: { color, first: i === 0 }, geometry: { type: 'Point', coordinates: snapped(s) } }));
+    if (path.length > 1) {
+      f.push({ type: 'Feature', properties: { color, back: false }, geometry: { type: 'LineString', coordinates: path.slice(0, outN + 1) } });
+      if (outN < path.length - 1) f.push({ type: 'Feature', properties: { color, back: true }, geometry: { type: 'LineString', coordinates: path.slice(outN) } });
+    }
+    pts.forEach((p, i) => f.push({ type: 'Feature', properties: { color, first: i === 0 }, geometry: { type: 'Point', coordinates: p } }));
     (this.map.getSource('draft') as GeoJSONSource).setData(fc(f));
   }
 

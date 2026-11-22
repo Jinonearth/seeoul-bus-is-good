@@ -141,9 +141,10 @@ function GameView({ dm }: { dm: Demand }) {
     m.ready.then(() => {
       if (!live) return;
       m.setDrawing(!!draft);
-      if (!draft) { m.setDraft([], [], ''); return; }
+      if (!draft) { m.setDraft([], 0, [], ''); return; }
       const color = draft.editing?.color ?? routeStyle(game.routes.length).color;
-      m.setDraft(draft.stops.length > 1 ? routePath(draft.stops).path : [], draft.stops, color);
+      const rp = routePath(draft.stops);
+      m.setDraft(rp.path, rp.outN, rp.stopPts, color);
     });
     return () => { live = false; };
   }, [draft, game]);
@@ -229,7 +230,7 @@ function GameView({ dm }: { dm: Demand }) {
         <dl className="icons">
           <dt><Icon n="out" /></dt><dd>출발 수요</dd><dt><Icon n="in" /></dt><dd>도착 수요</dd><dt><Icon n="gap" /></dt><dd>버스가 닿지 않는 수요</dd>
           <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
-          <dt><Icon n="clock" /></dt><dd>배차간격 (′ = 분)</dd><dt><Icon n="loop" /></dt><dd>한 바퀴 시간</dd><dt><Icon n="cap" /></dt><dd>시간당 정원</dd>
+          <dt><Icon n="clock" /></dt><dd>배차간격 (′ = 분)</dd><dt><Icon n="loop" /></dt><dd>한 바퀴 시간 (가는 길 + 오는 길)</dd><dt><Icon n="ruler" /></dt><dd>노선 길이 (편도 = 한 바퀴의 절반)</dd><dt><Icon n="cap" /></dt><dd>시간당 정원</dd>
           <dt><Icon n="up" /><Icon n="down" /></dt><dd>목표 페이스 넘김/부족</dd><dt><span className="streak"><i className="on" /><i /><i /></span></dt><dd>연속 미달 (3칸이면 게임 오버)</dd>
           <dt><Icon n="trunk" /><Icon n="branch" /><Icon n="circ" /></dt><dd>간선 · 지선 · 순환</dd>
           <dt><Icon n="b0" /><Icon n="b1" /><Icon n="b2" /><Icon n="b3" /><Icon n="b4" /></dt><dd>출근 · 낮 · 퇴근 · 저녁 · 심야</dd>
@@ -305,7 +306,7 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange }: { d
       <div className="acts"><button className="btn icon" onClick={onEdit} aria-label="노선 수정"><Icon n="edit" s={18} /></button>
         <button className={`btn icon danger ${armed ? 'armed' : ''}`} onClick={() => (armed ? onDelete() : setArmed(true))} aria-label={armed ? '한 번 더 누르면 폐선' : '폐선'}><Icon n="trash" s={18} />{armed && '?'}</button></div></div>
     <Stepper n={r.buses} min={1} max={free} free={free - r.buses} onSet={setN} />
-    <div className="quick"><Stat i="clock" v={`${fmtHw(r.headway)}′`} label="배차간격" /><Stat i="loop" v={`${Math.round(r.cyc)}′`} label="한 바퀴" /><Stat i="ruler" v={`${r.lenKm.toFixed(1)}km`} label="노선 길이" /></div>
+    <div className="quick"><Stat i="clock" v={`${fmtHw(r.headway)}′`} label="배차간격" /><Stat i="loop" v={`${Math.round(r.cyc)}′`} label="한 바퀴" /><Stat i="ruler" v={`${r.lenKm.toFixed(1)}km`} label="노선 길이 (편도)" /></div>
     <div className="quick"><Stat i="person" v={fmt(carried)} label="하루 수송" /><Stat i="miss" v={fmt(demand - carried)} label="하루 놓침" warn={demand - carried > 1} /><Stat i="cap" v={`${fmt(r.capH)}/h`} label="시간당 정원" /></div>
     <div className="crowd" role="img" aria-label={`지금 혼잡도 ${Math.round(crowd * 100)}%`}><i style={{ width: `${Math.min(100, crowd * 100)}%`, background: crowd > 1 ? '#D55E00' : crowd > 0.8 ? '#E69F00' : '#0072B2' }} /><span>{crowd > 1 && <Icon n="warn" s={12} />}{Math.round(crowd * 100)}%</span></div>
     <table className="segt"><thead><tr><th /><th><Icon n="person" s={13} label="수요" />/h</th><th><Icon n="cap" s={13} label="정원" />/h</th><th /></tr></thead><tbody>
@@ -319,7 +320,7 @@ function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Deman
   const day = ev ? ev.carried.reduce((a, b) => a + b, 0) : 0;
   return <>
     <div className="head" style={{ justifyContent: 'space-between' }}>
-      <h2 aria-label={draft.editing ? `${draft.editing.num}번 수정` : '새 노선'}>{draft.editing ? <><Icon n="edit" s={18} /> {draft.editing.num}</> : <>+<Icon n="route" s={20} /></>} <span className="sub"><Icon n="stop" s={14} label="정류장" />{draft.stops.length}{ev?.broken && <> <Icon n="warn" s={14} label="도로로 잇지 못한 구간" className="bad" /></>}</span></h2>
+      <h2 aria-label={draft.editing ? `${draft.editing.num}번 수정` : '새 노선'}>{draft.editing ? <><Icon n="edit" s={18} /> {draft.editing.num}</> : <>+<Icon n="route" s={20} /></>} <span className="sub"><Icon n="stop" s={14} label="정류장" />{draft.stops.length}{(ev?.broken || ev?.uturn) && <> <Icon n="warn" s={14} label="도로로 잇지 못한 구간" className="bad" /></>}</span></h2>
       <div className="acts">
         <button className="btn icon" disabled={!draft.stops.length} onClick={() => setDraft({ ...draft, stops: draft.stops.slice(0, -1) })} aria-label="되돌리기"><Icon n="undo" s={18} /></button>
         <button className="btn icon" onClick={onCancel} aria-label="취소"><Icon n="x" s={18} /></button>

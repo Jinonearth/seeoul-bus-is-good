@@ -1,6 +1,7 @@
 // 수요 데이터: 행정동 OD(평일 하루 평균) + res9 셀 안의 출발/도착 비중
 // 셀 a → 셀 c, 시간대 b 통행 = od(A,C) × dongShare[A][b] × o_a[b] × d_c[b]  (A, C = 셀이 속한 동)
 import { cellToLatLng, cellToParent, gridDisk } from 'h3-js';
+import type { Cand } from './roads';
 
 export const NB = 5;
 export type Bin = { name: string; from: number; to: number };
@@ -32,16 +33,16 @@ export const key = (a: number, c: number) => a * 1000 + c;
 
 // 정류장 자리: 셀마다 버스가 설 수 있는 도로 위 한 점 (scripts/build_stop_snap.py).
 // 목록에 없는 셀은 쓸 도로가 없어 정류장을 둘 수 없어요.
-const SNAP = new Map<string, [number, number, number, number]>();   // lng, lat, 도로 간선, 간선 위 거리(m)
+const SNAP = new Map<string, Cand[]>();   // 셀 → 도로 위 정류장 후보들 (첫 번째가 대표 자리)
 export const stopable = (id: string) => SNAP.has(id);
 export const snapInfo = (id: string) => SNAP.get(id);
-export const snapped = (id: string): [number, number] => { const p = SNAP.get(id); if (p) return [p[0], p[1]]; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
+export const snapped = (id: string): [number, number] => { const p = SNAP.get(id)?.[0]; if (p) return [p[0], p[1]]; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
 
 export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Demand> {
   const [dem, flat, snap] = await Promise.all([
     fetch(`${base}data/demand.json`).then(r => r.json()),
     fetch(`${base}data/od.json`).then(r => r.json()) as Promise<number[]>,
-    fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, [number, number, number, number]>>,
+    fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, Cand[]>>,
   ]);
   SNAP.clear(); for (const id in snap) SNAP.set(id, snap[id]);
   const od = new Map<number, number>(), outOf = new Map<number, [number, number][]>(), into = new Map<number, [number, number][]>();
