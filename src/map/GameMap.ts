@@ -1,7 +1,7 @@
 // MapLibre 지도와 게임 레이어(헥사곤 수요, 수요 흐름, 노선, 정류장, 버스)
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
-import { cellToBoundary, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
+import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
 import { type Demand, stopable } from '../game/data';
 import { type Route, posAt, crowdAt, WALK } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
@@ -22,6 +22,7 @@ const fc = (features: GeoJSON.Feature[] = []): FC => ({ type: 'FeatureCollection
 export class GameMap {
   map: maplibregl.Map;
   ready: Promise<void>;
+  isReady = false;   // 레이어 준비됨 (map.loaded()는 타일 읽는 동안 false)
   private dm: Demand;
   private plates = new Set<string>();
   onTap: (e: { lngLat: [number, number]; route?: number }) => void = () => {};
@@ -38,7 +39,7 @@ export class GameMap {
       dragRotate: false, pitchWithRotate: false, touchPitch: false,
     });
     this.map.touchZoomRotate.disableRotation();
-    this.ready = new Promise(res => this.map.once('load', () => { this.addLayers(); res(); }));
+    this.ready = new Promise(res => this.map.once('load', () => { this.addLayers(); this.isReady = true; res(); }));
     this.map.on('click', e => {
       const pad = matchMedia('(pointer: coarse)').matches ? 22 : 8;
       const hit = this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['route-hit'] });
@@ -52,7 +53,7 @@ export class GameMap {
     for (const res of HEX_RES) {
       const [minzoom, maxzoom] = ZRANGE[res];
       m.addSource(`hex${res}`, { type: 'geojson', data: fc() });
-      m.addSource(`dot${res}`, { type: 'geojson', data: fc() });
+      m.addSource(`dot${res}`, { type: 'geojson', data: fc(), promoteId: 'id' });
       m.addLayer({ id: `hex${res}-u`, type: 'fill', source: `hex${res}`, minzoom, maxzoom, filter: ['==', ['get', 'u'], 1], paint: { 'fill-color': PINK, 'fill-opacity': 0.18 } });
       // 노선 그리는 중: 도로가 없어 정류장을 둘 수 없는 셀을 옅은 회색으로
       if (res === 9) m.addLayer({ id: 'hex9-ns', type: 'fill', source: 'hex9', minzoom, maxzoom, filter: ['==', ['get', 'ns'], 1], layout: { visibility: 'none' }, paint: { 'fill-color': INK, 'fill-opacity': 0.14 } });
@@ -61,7 +62,8 @@ export class GameMap {
       const edge = getHexagonEdgeLengthAvg(res, UNITS.m), k = (z: number) => edge / (156543 * Math.cos(37.55 * Math.PI / 180) / 2 ** z);
       m.addLayer({ id: `dot${res}`, type: 'circle', source: `dot${res}`, minzoom, maxzoom,
         paint: { 'circle-color': PINK, 'circle-opacity': 0.85,
-          'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 8, ['*', ['get', 'r'], k(8)], 16, ['*', ['get', 'r'], k(16)]] } });
+          // k = 지금 기다리는 사람 ÷ 평소 (실시간, 면적이 k배)
+          'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 8, ['*', ['get', 'r'], ['sqrt', ['coalesce', ['feature-state', 'k'], 1]], k(8)], 16, ['*', ['get', 'r'], ['sqrt', ['coalesce', ['feature-state', 'k'], 1]], k(16)]] } });
     }
     m.addSource('sel', { type: 'geojson', data: fc() });
     m.addLayer({ id: 'sel', type: 'line', source: 'sel', paint: { 'line-color': INK, 'line-width': 3 } });
@@ -131,24 +133,49 @@ export class GameMap {
     this.plates.add(k);
   }
 
+  // 망점 실시간 크기: 셀(및 res7·8 묶음)마다 지금 기다리는 사람 ÷ 평소. 많이 바뀐 것만 고쳐요
+  private live = new Map<number, [string, boolean][]>();
+  private liveK = new Map<string, number>();
+  private layer: Layer = 'o';
+  private kids: Map<string, number[]>[] | null = null;
+  setLive(pool: Float64Array, eq: (i: number) => number) {
+    if (this.layer === 'd') return;
+    const dm = this.dm;
+    this.kids ??= [7, 8].map(res => { const m = new Map<string, number[]>(); dm.cells.forEach(c => { const p = cellToParent(c.id, res); (m.get(p) ?? m.set(p, []).get(p)!).push(c.i); }); return m; });
+    for (const [res, list] of this.live) {
+      for (const [id, cov] of list) {
+        let k: number;
+        if (res === 9) { const i = dm.byId.get(id)!.i, e = eq(i); k = e > 0 ? pool[i] / e : 1; }
+        else { let p = 0, e = 0; for (const i of this.kids[res === 7 ? 0 : 1].get(id) ?? []) { p += pool[i]; e += eq(i); } k = e > 0 ? p / e : 1; }
+        if (this.layer === 'u' && cov && k < 0.6) k = 0;   // 버스가 닿고 잘 태워 가는 곳은 미충족 아님
+        const key = res + id, old = this.liveK.get(key);
+        if (old !== undefined && Math.abs(old - k) < 0.03) continue;
+        this.liveK.set(key, k); this.map.setFeatureState({ source: `dot${res}`, id }, { k });
+      }
+    }
+  }
+
   // 지금 시간대 수요를 헥사곤 망점으로
   setDemand(layer: Layer, bin: number, covered: Set<string>) {
     const dm = this.dm;
+    this.layer = layer; this.liveK.clear();
     const sets: [number, { id: string; lat: number; lng: number; O: number[]; D: number[]; Ou: number[] }[]][] = [
       [7, [...dm.parents[0].values()]], [8, [...dm.parents[1].values()]], [9, dm.cells]];
     for (const [res, list] of sets) {
       const val = (c: { id: string; O: number[]; D: number[]; Ou: number[] }) => {
         if (layer !== 'u') return layer === 'd' ? c.D[bin] : c.O[bin];
-        return isCovered(c.id, res, covered) ? 0 : c.Ou[bin];
+        return c.Ou[bin];   // 버스가 닿는 셀도 넣고, 실시간으로 기다리는 사람이 많을 때만 보여요(setLive)
       };
       const vals = list.map(val), sorted = [...vals].sort((a, b) => a - b), ref = sorted[Math.floor(sorted.length * 0.98)] || 1;
-      const hex: GeoJSON.Feature[] = [], dot: GeoJSON.Feature[] = [];
+      const hex: GeoJSON.Feature[] = [], dot: GeoJSON.Feature[] = [], live: [string, boolean][] = [];
       list.forEach((c, i) => {
         const v = Math.sqrt(Math.min(1, vals[i] / ref));
         const ring = cellToBoundary(c.id, true);
-        hex.push({ type: 'Feature', properties: { id: c.id, u: layer === 'u' && vals[i] > 0.04 * ref ? 1 : 0, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
-        if (v >= 0.08) dot.push({ type: 'Feature', properties: { r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } });
+        const cov = isCovered(c.id, res, covered);
+        hex.push({ type: 'Feature', properties: { id: c.id, u: layer === 'u' && !cov && vals[i] > 0.04 * ref ? 1 : 0, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
+        if (v >= 0.08) { dot.push({ type: 'Feature', properties: { id: c.id, r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } }); live.push([c.id, cov]); }
       });
+      this.live.set(res, live); this.map.removeFeatureState({ source: `dot${res}` });
       (this.map.getSource(`hex${res}`) as GeoJSONSource).setData(fc(hex));
       (this.map.getSource(`dot${res}`) as GeoJSONSource).setData(fc(dot));
     }

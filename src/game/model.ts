@@ -44,6 +44,7 @@ export type Eval = {
   lenKm: number; cyc: number; buses: number; headway: number;
   demand: number[]; carried: number[]; capH: number; stopShare: number[];
   broken: boolean;   // 도로로 못 이은 구간이 있어요(직선)
+  catch: { cells: number[]; walk: number[] }[];   // 정류장마다 걸어오는 셀(dm.cells 번호)과 걷는 거리 가중
 };
 export type Bus = { s: number; k: number; wait: number; pax: number };
 export type Route = Eval & {
@@ -104,10 +105,11 @@ const ringsOf = (s: string) => rings.get(s) ?? rings.set(s, gridDiskDistances(s,
 function catchments(dm: Demand, stops: string[]) {
   const best = new Map<string, [number, number]>();   // 셀 → [정류장 번호, 거리]
   stops.forEach((s, i) => ringsOf(s).forEach((ring, k) => { for (const id of ring) { const b = best.get(id); if (!b || k < b[1]) best.set(id, [i, k]); } }));
-  const C = stops.map(() => ({ O: new Map<number, number[]>(), D: new Map<number, number[]>() }));
+  const C = stops.map(() => ({ O: new Map<number, number[]>(), D: new Map<number, number[]>(), cells: [] as number[], walk: [] as number[] }));
   for (const [id, [i, k]] of best) {
     const c = dm.byId.get(id); if (!c) continue;
     const { O, D } = C[i], w = WALK[k];
+    C[i].cells.push(c.i); C[i].walk.push(w);
     const o = O.get(c.dong) ?? O.set(c.dong, Array(NB).fill(0)).get(c.dong)!;
     const d = D.get(c.dong) ?? D.set(c.dong, Array(NB).fill(0)).get(c.dong)!;
     const sh = dm.dongShare[c.dong];
@@ -138,7 +140,7 @@ export function evalRoute(dm: Demand, stops: string[], buses: number, type: Rout
   const capH = 60 / headway * CAP_H;
   const carried = demand.map((v, b) => Math.min(v, capH * binHours(dm.bins[b])));
   const W = w.reduce((a, b) => a + b, 0) || 1;
-  return { stops, ...geo, cyc, buses: nb, headway, demand, carried, capH, stopShare: w.map(x => x / W) };
+  return { stops, ...geo, cyc, buses: nb, headway, demand, carried, capH, stopShare: w.map(x => x / W), catch: C.map(c => ({ cells: c.cells, walk: c.walk })) };
 }
 
 const serial: Record<string, number> = {};
@@ -183,7 +185,7 @@ export function boardAt(dm: Demand, r: Route, i: number, bin: number) {
   return { n: Math.round(on), rode: on / 2, missed: (raw - on) / 2 };
 }
 // 이번 걸음에 들른 정류장에서 태운/못 태운 통행을 tally에 더해요
-export type Tally = { rode: number; missed: number };
+export type Tally = { rode: number; missed: number; board: [Route, number, number][] };   // board: [노선, 정류장, 태운 통행]
 export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number, tally?: Tally) {
   const L2 = 2 * r.lenKm; let left = gm;
   const seq = r.visits;
@@ -195,7 +197,7 @@ export function moveBus(dm: Demand, r: Route, b: Bus, gm: number, bin: number, t
     if (step < dist) { b.s = (b.s + step) % L2; return; }
     b.s = q.s; left -= dist / SPEED;
     const v = boardAt(dm, r, q.i, bin); b.pax = v.n; b.wait = DWELL0 + DWELL_PER * v.n; b.k = (b.k + 1) % seq.length;
-    if (tally) { tally.rode += v.rode; tally.missed += v.missed; }
+    if (tally) { tally.rode += v.rode; tally.missed += v.missed; if (v.rode > 0) tally.board.push([r, q.i, v.rode]); }
   }
 }
 // 고리 위 거리 s → 좌표

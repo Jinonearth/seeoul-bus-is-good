@@ -95,11 +95,11 @@ function GameView({ dm }: { dm: Demand }) {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       game.advance(dt * 2 * game.speed);
       const m = gm.current;
-      if (m?.map.loaded()) {
+      if (m?.isReady) {
         m.setBuses(game.routes, game.bin, selRef.current?.kind === 'route' ? selRef.current.id : null);
         if (game.bin !== lastBin) { lastBin = game.bin; redrawRoutes(); }
       }
-      acc += dt; if (acc > 0.25) { acc = 0; rerender(); }
+      acc += dt; if (acc > 0.25) { acc = 0; rerender(); if (m?.isReady) m.setLive(game.pool, i => game.poolEq(i)); }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -228,7 +228,7 @@ function GameView({ dm }: { dm: Demand }) {
           <g fill="#FF48B0">{[4, 8, 12, 16, 20].map((r, i) => <circle key={r} cx={32 + i * 64} cy="30" r={r} />)}</g></svg>
           <div className="ends"><span>적음</span><span>많음</span></div></div>
         <dl className="icons">
-          <dt><Icon n="out" /></dt><dd>출발 수요</dd><dt><Icon n="in" /></dt><dd>도착 수요</dd><dt><Icon n="gap" /></dt><dd>버스가 닿지 않는 수요</dd>
+          <dt><Icon n="out" /></dt><dd>지금 기다리는 사람 (버스가 태워 가면 작아져요)</dd><dt><Icon n="in" /></dt><dd>도착 수요</dd><dt><Icon n="gap" /></dt><dd>못 탄 채 기다리는 사람 (버스가 안 닿거나 모자란 곳)</dd>
           <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
           <dt><Icon n="clock" /></dt><dd>배차간격 (′ = 분)</dd><dt><Icon n="loop" /></dt><dd>한 바퀴 시간 (가는 길 + 오는 길)</dd><dt><Icon n="ruler" /></dt><dd>노선 길이 (편도 = 한 바퀴의 절반)</dd><dt><Icon n="cap" /></dt><dd>시간당 정원</dd>
           <dt><Icon n="up" /><Icon n="down" /></dt><dd>목표 페이스 넘김/부족</dd><dt><span className="streak"><i className="on" /><i /><i /></span></dt><dd>연속 미달 (3칸이면 게임 오버)</dd>

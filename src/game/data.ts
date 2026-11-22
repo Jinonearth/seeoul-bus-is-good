@@ -7,7 +7,7 @@ export const NB = 5;
 export type Bin = { name: string; from: number; to: number };
 
 export type Cell = {
-  id: string; dong: number; lat: number; lng: number;
+  id: string; i: number; dong: number; lat: number; lng: number;
   o: number[]; d: number[];      // 동 안 비중 (시간대별)
   O: number[]; D: number[];      // 이 셀에서 출발/도착하는 하루 통행 (시간대별)
   Ou: number[];                  // 미충족 레이어용 출발: 3칸 안에 정류장 둘 곳이 없는 셀은 0
@@ -55,11 +55,11 @@ export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Deman
     (into.get(c) ?? into.set(c, []).get(c)!).push([a, n]);
     for (let b = 0; b < NB; b++) dongInBin[c][b] += n * dem.dongShare[a][b];
   }
-  const cells: Cell[] = dem.cells.map(([id, dong, o, d]: [string, number, number[], number[]]) => {
+  const cells: Cell[] = dem.cells.map(([id, dong, o, d]: [string, number, number[], number[]], i: number) => {
     const [lat, lng] = cellToLatLng(id);
     const share = dem.dongShare[dong];
     return {
-      id, dong, lat, lng, o, d,
+      id, i, dong, lat, lng, o, d,
       O: o.map((v, b) => dongOut[dong] * share[b] * v),
       D: d.map((v, b) => dongInBin[dong][b] * v),
       Ou: [],
