@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { latLngToCell, cellToParent, gridDisk, gridDiskDistances, cellToLatLng, gridPathCells } from 'h3-js';
+import { latLngToCell, cellToParent, gridDisk, cellToLatLng } from 'h3-js';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { type Demand, loadDemand, binHours, stopable } from './game/data';
+import { loadRoads } from './game/roads';
+import { SEED_TRUNK, SEED_BRANCH } from './game/seeds';
 import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt, WALK } from './game/model';
 import { Game, fmt, type Settle } from './game/state';
 
@@ -61,20 +63,10 @@ function GameView({ dm }: { dm: Demand }) {
   useEffect(() => {
     const m = new GameMap(mapEl.current!, dm); gm.current = m;
     game.onSettle = (x: Settle) => toast({ kind: x.ok ? 'good' : 'warn', text: <>D{x.day} <Icon n={x.ok ? 'ok' : 'x'} s={14} /> <Icon n="person" s={14} />{fmt(x.got)}/{fmt(x.target)}{!x.ok && <> <Icon n="warn" s={14} />{x.miss}/{RULES.maxMiss}</>}{x.ok && x.hit > 0 && <> <Icon n="up" s={14} />{x.hit}/{RULES.bonusDays}</>}{x.grow > 0 && <> <Icon n="bus" s={14} />+{x.grow}</>}</> }); game.onOver = rerender;
-    // 예시 노선: 지나는 헥사곤 두 칸마다 정류장 (실제 서울 버스 정류장 간격 약 500m).
-    // 그 칸에 도로가 없으면 가장 가까운 정류장 가능 칸으로
-    const near = (c: string) => gridDiskDistances(c, 2).flat().find(stopable);
-    const cells = (pts: [number, number][]) => {
-      const key = pts.map(([lng, lat]) => latLngToCell(lat, lng, 9)), all: string[] = [key[0]];
-      for (let i = 1; i < key.length; i++) all.push(...gridPathCells(key[i - 1], key[i]).slice(1));
-      const out: string[] = [];
-      all.forEach((c, i) => { if (i % 2 && i !== all.length - 1) return; const s = near(c); if (s && s !== out[out.length - 1]) out.push(s); });
-      return out;
-    };
     // 개발 모드(StrictMode)는 이 effect를 두 번 실행해요. 예시 노선이 두 벌 생기면 버스가 모자라 새 노선을 못 만들어요
     if (!game.routes.length) {
-      game.routes.push(makeRoute(dm, 'trunk', cells([[127.062, 37.655], [127.056, 37.636], [127.047, 37.618], [127.03, 37.602], [127.012, 37.588], [126.998, 37.571], [126.992, 37.566], [127.007, 37.548], [127.017, 37.535], [127.027, 37.519], [127.035, 37.502]]), 18, true));
-      game.routes.push(makeRoute(dm, 'branch', cells([[126.93, 37.484], [126.918, 37.486], [126.908, 37.487], [126.896, 37.484], [126.885, 37.48], [126.875, 37.495]]), 6, true));
+      game.routes.push(makeRoute(dm, 'trunk', SEED_TRUNK.filter(stopable), 18, true));
+      game.routes.push(makeRoute(dm, 'branch', SEED_BRANCH.filter(stopable), 6, true));
     }
     m.ready.then(() => { redrawRoutes(); rerender(); });
     return () => m.map.remove();
@@ -82,6 +74,19 @@ function GameView({ dm }: { dm: Demand }) {
   }, [dm]);
 
   useEffect(() => { gm.current?.map.loaded() && redrawRoutes(); }, [layer, focusId, redrawRoutes]);
+  const redrawRef = useRef(redrawRoutes); redrawRef.current = redrawRoutes;
+
+  // 도로 그래프는 첫 화면 뒤에 읽어요. 다 읽으면 노선을 실제 도로 길로 다시 계산
+  useEffect(() => {
+    let live = true;
+    loadRoads().then(() => {
+      if (!live) return;
+      for (const r of game.routes) updateRoute(dm, r, r.stops, r.buses);
+      setDraft(d => (d ? { ...d } : d));
+      gm.current?.ready.then(() => { redrawRef.current(); rerender(); });
+    }).catch(() => { /* 못 읽으면 셀을 잇는 선으로 */ });
+    return () => { live = false; };
+  }, [dm, game, rerender]);
 
   // 시간 흐름: 1배속 = 초당 게임 2분
   useEffect(() => {
@@ -314,7 +319,7 @@ function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Deman
   const day = ev ? ev.carried.reduce((a, b) => a + b, 0) : 0;
   return <>
     <div className="head" style={{ justifyContent: 'space-between' }}>
-      <h2 aria-label={draft.editing ? `${draft.editing.num}번 수정` : '새 노선'}>{draft.editing ? <><Icon n="edit" s={18} /> {draft.editing.num}</> : <>+<Icon n="route" s={20} /></>} <span className="sub"><Icon n="stop" s={14} label="정류장" />{draft.stops.length}</span></h2>
+      <h2 aria-label={draft.editing ? `${draft.editing.num}번 수정` : '새 노선'}>{draft.editing ? <><Icon n="edit" s={18} /> {draft.editing.num}</> : <>+<Icon n="route" s={20} /></>} <span className="sub"><Icon n="stop" s={14} label="정류장" />{draft.stops.length}{ev?.broken && <> <Icon n="warn" s={14} label="도로로 잇지 못한 구간" className="bad" /></>}</span></h2>
       <div className="acts">
         <button className="btn icon" disabled={!draft.stops.length} onClick={() => setDraft({ ...draft, stops: draft.stops.slice(0, -1) })} aria-label="되돌리기"><Icon n="undo" s={18} /></button>
         <button className="btn icon" onClick={onCancel} aria-label="취소"><Icon n="x" s={18} /></button>

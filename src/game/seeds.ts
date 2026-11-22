@@ -1,0 +1,3 @@
+// scripts/build_seed_routes.mjs가 만든 예시 노선 정류장 (res9 셀). 도로 데이터를 다시 만들면 이것도 다시 만들어요
+export const SEED_TRUNK = ["8930e1c2173ffff","8930e1c2397ffff","8930e1c238fffff","8930e1c2353ffff","8930e1c0487ffff","8930e1c226fffff","8930e1c31a7ffff","8930e1c31abffff","8930e1c3103ffff","8930e1c315bffff","8930e1c304fffff","8930e1d8db7ffff","8930e1d8dbbffff","8930e1d8d47ffff","8930e1d8d4bffff","8930e1d88b7ffff","8930e1d8827ffff","8930e1d8b8bffff","8930e1d8bdbffff","8930e1d8a2fffff","8930e1ca48bffff","8930e1d8b7bffff","8930e1d8b77ffff","8930e1ca5d7ffff","8930e1ca00fffff","8930e1ca063ffff","8930e1ca3d3ffff"];
+export const SEED_BRANCH = ["8930e036c97ffff","8930e1d920bffff","8930e036517ffff","8930e0365d7ffff","8930e0365dbffff","8930e0acb7bffff","8930e0acbcfffff","8930e0acb8bffff"];

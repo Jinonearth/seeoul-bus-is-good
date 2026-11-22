@@ -32,15 +32,16 @@ export const key = (a: number, c: number) => a * 1000 + c;
 
 // 정류장 자리: 셀마다 버스가 설 수 있는 도로 위 한 점 (scripts/build_stop_snap.py).
 // 목록에 없는 셀은 쓸 도로가 없어 정류장을 둘 수 없어요.
-const SNAP = new Map<string, [number, number]>();
+const SNAP = new Map<string, [number, number, number, number]>();   // lng, lat, 도로 간선, 간선 위 거리(m)
 export const stopable = (id: string) => SNAP.has(id);
-export const snapped = (id: string): [number, number] => { const p = SNAP.get(id); if (p) return p; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
+export const snapInfo = (id: string) => SNAP.get(id);
+export const snapped = (id: string): [number, number] => { const p = SNAP.get(id); if (p) return [p[0], p[1]]; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
 
 export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Demand> {
   const [dem, flat, snap] = await Promise.all([
     fetch(`${base}data/demand.json`).then(r => r.json()),
     fetch(`${base}data/od.json`).then(r => r.json()) as Promise<number[]>,
-    fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, [number, number]>>,
+    fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, [number, number, number, number]>>,
   ]);
   SNAP.clear(); for (const id in snap) SNAP.set(id, snap[id]);
   const od = new Map<number, number>(), outOf = new Map<number, [number, number][]>(), into = new Map<number, [number, number][]>();

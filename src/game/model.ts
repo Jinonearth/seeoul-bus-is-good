@@ -1,6 +1,7 @@
 // 게임 규칙과 노선 계산. 화면과 분리된 순수 로직.
 import { gridDiskDistances, gridDistance, gridPathCells, cellToLatLng } from 'h3-js';
-import { type Demand, NB, key, binHours, snapped } from './data';
+import { type Demand, NB, key, binHours, snapped, snapInfo } from './data';
+import { roadBetween, roadsReady } from './roads';
 
 // ── 규칙 (1차 임시값, 시나리오 기획안과 같음) ──
 export const RULES = {
@@ -21,7 +22,7 @@ export const DWELL_PER = 0.03;     // 1명 타고 내릴 때마다 약 2초
 export const DWELL_EST = 0.4;      // 한 바퀴 시간 계산용 정류장당 평균 정차(분)
 export const BUS_CAP = 75;
 export const CAP_H = BUS_CAP * 3 * 2;   // 버스 한 대 한 시간 정원 = 75인승 × 구간 회전 3 × 양방향
-export const CAPTURE = 0.135;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
+export const CAPTURE = 0.18;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
 export const MIN_GAP = 2;               // 이보다 가까운 정류장 사이(헥사곤 칸 수)는 걸어감
 
 // ── 노선 표기 (색약 고려: 색 + 패턴) ──
@@ -38,6 +39,7 @@ export type Eval = {
   stops: string[]; path: [number, number][]; cum: number[]; stopAt: number[];
   lenKm: number; cyc: number; buses: number; headway: number;
   demand: number[]; carried: number[]; capH: number; stopShare: number[];
+  broken: boolean;   // 도로로 못 이은 구간이 있어요(직선)
 };
 export type Bus = { s: number; k: number; wait: number; pax: number };
 export type Route = Eval & {
@@ -52,18 +54,22 @@ const hav = (a: [number, number], b: [number, number]) => {
 };
 export const center = (id: string): [number, number] => { const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
 
-// 탭한 정류장 셀들 사이를 지나는 선. 정류장과 지나는 셀 모두 그 셀의 도로 위 점(도로 없는 셀은 중심)을 이어요
+// 탭한 정류장 사이를 실제 도로로 잇는 선. 도로 그래프를 아직 못 읽었으면 지나는 셀의 도로 위 점을 이어요.
+// 두 정류장 사이 길을 못 찾으면 직선으로 잇고 broken
 export function routePath(stops: string[]) {
-  const cells: string[] = [], stopAt: number[] = [];
+  const path: [number, number][] = [], stopIdx: number[] = [];
+  let broken = false;
   stops.forEach((s, i) => {
-    if (i === 0) { cells.push(s); stopAt.push(0); return; }
-    let seg: string[];
-    try { seg = gridPathCells(stops[i - 1], s); } catch { seg = [stops[i - 1], s]; }
-    cells.push(...seg.slice(1)); stopAt.push(cells.length - 1);
+    if (i === 0) { path.push(snapped(s)); stopIdx.push(0); return; }
+    const p = stops[i - 1], a = snapInfo(p), b = snapInfo(s);
+    let seg: [number, number][] | null = null;
+    if (roadsReady()) { seg = a && b ? roadBetween(p, a, s, b) : null; if (!seg) { broken = true; seg = [snapped(p), snapped(s)]; } }
+    else { try { seg = gridPathCells(p, s).map(snapped); } catch { seg = [snapped(p), snapped(s)]; } }
+    path.push(...seg.slice(1)); stopIdx.push(path.length - 1);
   });
-  const path = cells.map(snapped), cum = [0];
+  const cum = [0];
   for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + hav(path[i - 1], path[i]));
-  return { path, cum, stopAt: stopAt.map(i => cum[i]), lenKm: cum[cum.length - 1] };
+  return { path, cum, stopAt: stopIdx.map(i => cum[i]), lenKm: cum[cum.length - 1], broken };
 }
 
 // 걸어서 정류장까지 가는 거리(res9 칸 수 0..3, 한 칸 약 350m)별로 타러 오는 비율. 3칸이 약 1km
