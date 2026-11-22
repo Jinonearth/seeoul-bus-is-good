@@ -30,7 +30,7 @@ npm run build    # dist/
 | 경로 | 내용 |
 |---|---|
 | `src/game/data.ts` | 수요 데이터 로드. 셀 a→c 통행 = od(A,C) × dongShare[A][b] × o_a[b] × d_c[b] |
-| `src/game/model.ts` | 규칙, 노선 평가(정류장 걸어서 닿는 범위 = 자기 칸 + 이웃 6칸), 버스 운행·정차 |
+| `src/game/model.ts` | 규칙, 노선 평가(정류장 걸어서 닿는 범위 = 3칸(약 1km)까지, 셀마다 가장 가까운 정류장 하나, 멀수록 덜 탐), 버스 운행·정차 |
 | `src/game/state.ts` | 시간 흐름, 정산, 증차, 게임 오버 |
 | `src/map/` | MapLibre 지도(B "인쇄 노선도" 스타일)와 게임 레이어 |
 | `src/App.tsx` | 화면: 상단 HUD, 범례, 줌, 아래 시트(노선 칩 + 패널) |

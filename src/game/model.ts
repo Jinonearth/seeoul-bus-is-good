@@ -1,5 +1,5 @@
 // 게임 규칙과 노선 계산. 화면과 분리된 순수 로직.
-import { gridDisk, gridDistance, gridPathCells, cellToLatLng } from 'h3-js';
+import { gridDiskDistances, gridDistance, gridPathCells, cellToLatLng } from 'h3-js';
 import { type Demand, NB, key, binHours } from './data';
 
 // ── 규칙 (1차 임시값, 시나리오 기획안과 같음) ──
@@ -21,7 +21,7 @@ export const DWELL_PER = 0.03;     // 1명 타고 내릴 때마다 약 2초
 export const DWELL_EST = 0.4;      // 한 바퀴 시간 계산용 정류장당 평균 정차(분)
 export const BUS_CAP = 75;
 export const CAP_H = BUS_CAP * 3 * 2;   // 버스 한 대 한 시간 정원 = 75인승 × 구간 회전 3 × 양방향
-export const CAPTURE = 0.24;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
+export const CAPTURE = 0.135;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
 export const MIN_GAP = 2;               // 이보다 가까운 정류장 사이(헥사곤 칸 수)는 걸어감
 
 // ── 노선 표기 (색약 고려: 색 + 패턴) ──
@@ -66,17 +66,26 @@ export function routePath(stops: string[]) {
   return { path, cum, stopAt: stopAt.map(i => cum[i]), lenKm: cum[cum.length - 1] };
 }
 
-// 정류장 하나가 걸어서 닿는 범위(자기 셀 + 이웃 6칸)를 동별로 모은 출발·도착 비중
-function catchment(dm: Demand, stop: string) {
-  const O = new Map<number, number[]>(), D = new Map<number, number[]>();
-  for (const id of gridDisk(stop, 1)) {
+// 걸어서 정류장까지 가는 거리(res9 칸 수 0..3, 한 칸 약 350m)별로 타러 오는 비율. 3칸이 약 1km
+export const WALK = [1, 1, 0.7, 0.4];
+const rings = new Map<string, string[][]>();
+const ringsOf = (s: string) => rings.get(s) ?? rings.set(s, gridDiskDistances(s, WALK.length - 1)).get(s)!;
+
+// 노선 하나가 걸어서 닿는 범위를 정류장별로 나눠 동별로 모은 출발·도착 비중.
+// 셀마다 이 노선의 가장 가까운 정류장 하나에만 붙어요 (같으면 앞 정류장). 이웃 정류장이 같은 셀을 두 번 세지 않게.
+function catchments(dm: Demand, stops: string[]) {
+  const best = new Map<string, [number, number]>();   // 셀 → [정류장 번호, 거리]
+  stops.forEach((s, i) => ringsOf(s).forEach((ring, k) => { for (const id of ring) { const b = best.get(id); if (!b || k < b[1]) best.set(id, [i, k]); } }));
+  const C = stops.map(() => ({ O: new Map<number, number[]>(), D: new Map<number, number[]>() }));
+  for (const [id, [i, k]] of best) {
     const c = dm.byId.get(id); if (!c) continue;
+    const { O, D } = C[i], w = WALK[k];
     const o = O.get(c.dong) ?? O.set(c.dong, Array(NB).fill(0)).get(c.dong)!;
     const d = D.get(c.dong) ?? D.set(c.dong, Array(NB).fill(0)).get(c.dong)!;
     const sh = dm.dongShare[c.dong];
-    for (let b = 0; b < NB; b++) { o[b] += sh[b] * c.o[b]; d[b] += c.d[b]; }
+    for (let b = 0; b < NB; b++) { o[b] += w * sh[b] * c.o[b]; d[b] += w * c.d[b]; }
   }
-  return { O, D };
+  return C;
 }
 
 export const cycleOf = (lenKm: number, nStops: number) => 2 * lenKm / SPEED + Math.max(0, 2 * nStops - 2) * DWELL_EST;
@@ -85,7 +94,7 @@ export const freqFactor = (headway: number) => Math.min(1, Math.max(0.3, 1.25 - 
 export function evalRoute(dm: Demand, stops: string[], buses: number, type: RouteType = 'trunk'): Eval {
   const geo = routePath(stops);
   const nb = Math.max(1, buses), cyc = cycleOf(geo.lenKm, stops.length), headway = cyc / nb;
-  const C = stops.map(s => catchment(dm, s));
+  const C = catchments(dm, stops);
   const demand = Array(NB).fill(0), w = stops.map(() => 0);
   for (let i = 0; i < stops.length; i++) for (let j = 0; j < stops.length; j++) {
     if (i === j || stops[i] === stops[j]) continue;

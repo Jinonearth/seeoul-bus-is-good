@@ -3,7 +3,7 @@ import { latLngToCell, cellToParent, gridDisk, cellToLatLng, gridPathCells } fro
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { type Demand, loadDemand, binHours } from './game/data';
-import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt } from './game/model';
+import { type Route, type RouteType, TYPES, RULES, makeRoute, updateRoute, evalRoute, routePath, routeStyle, crowdAt, WALK } from './game/model';
 import { Game, fmt, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
@@ -52,7 +52,7 @@ function GameView({ dm }: { dm: Demand }) {
   const redrawRoutes = useCallback(() => {
     const m = gm.current; if (!m) return;
     m.setRoutes(game.routes, selRef.current?.kind === 'route' ? selRef.current.id : null);
-    const covered = new Set<string>(); for (const r of game.routes) for (const s of r.stops) for (const c of gridDisk(s, 1)) covered.add(c);
+    const covered = new Set<string>(); for (const r of game.routes) for (const s of r.stops) for (const c of gridDisk(s, WALK.length - 1)) covered.add(c);
     setCoverage(covered, (id, res) => cellToParent(id, res));
     m.setDemand(layer, game.bin, covered);
   }, [game, layer]);
