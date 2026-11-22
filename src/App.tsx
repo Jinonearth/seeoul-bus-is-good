@@ -5,7 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
-import { SEED_TRUNK, SEED_BRANCH } from './game/seeds';
+import { SEED_TRUNK, SEED_BRANCH, SEED_CIRC } from './game/seeds';
 import { type Route, type RouteType, TYPES, RULES, BUS_CAP, makeRoute, updateRoute, evalRoute, routePath, routeStyle, WALK } from './game/model';
 import { Game, fmt, type Settle } from './game/state';
 
@@ -49,6 +49,12 @@ function GameView({ dm }: { dm: Demand }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stats, setStats] = useState(false);   // 아래 상태 막대 펼침(회사 현황)
   const [more, setMore] = useState(false);     // 팝업 자세히
+  // 노선 캐러셀: 양 끝 흐림(더 있음), 고른 노선은 보이게 스크롤
+  const carEl = useRef<HTMLDivElement>(null), [fade, setFade] = useState('');
+  const onCarScroll = useCallback(() => {
+    const c = carEl.current; if (!c) return;
+    setFade(`${c.scrollLeft > 4 ? 'fl' : ''} ${c.scrollLeft + c.clientWidth < c.scrollWidth - 4 ? 'fr' : ''}`.trim());
+  }, []);
   useEffect(() => setMore(false), [sel]);
   const [toasts, setToasts] = useState<(Toast & { id: number })[]>([]);
   const [help, setHelp] = useState(false);
@@ -76,8 +82,10 @@ function GameView({ dm }: { dm: Demand }) {
     game.onSettle = (x: Settle) => toast({ kind: x.ok ? 'good' : 'warn', text: <>D{x.day} <Icon n={x.ok ? 'ok' : 'x'} s={14} /> <Icon n="person" s={14} />{fmt(x.got)}/{fmt(x.target)}{!x.ok && <> <Icon n="warn" s={14} />{x.miss}/{RULES.maxMiss}</>}{x.ok && x.hit > 0 && <> <Icon n="up" s={14} />{x.hit}/{RULES.bonusDays}</>}{x.grow > 0 && <> <Icon n="bus" s={14} />+{x.grow}</>}</> }); game.onOver = rerender;
     // 개발 모드(StrictMode)는 이 effect를 두 번 실행해요. 예시 노선이 두 벌 생기면 버스가 모자라 새 노선을 못 만들어요
     if (!game.routes.length) {
-      game.routes.push(makeRoute(dm, 'trunk', SEED_TRUNK.filter(stopable), 18, true));
-      game.routes.push(makeRoute(dm, 'branch', SEED_BRANCH.filter(stopable), 6, true));
+      // 예시 노선 3개(간선·지선·순환), 버스 40대 중 31대. 남은 9대로 바로 새 노선을 만들 수 있어요
+      game.routes.push(makeRoute(dm, 'trunk', SEED_TRUNK.filter(stopable), 16, true));
+      game.routes.push(makeRoute(dm, 'branch', SEED_BRANCH.filter(stopable), 7, true));
+      game.routes.push(makeRoute(dm, 'circ', SEED_CIRC.filter(stopable), 8, true));
     }
     m.ready.then(() => { redrawRoutes(); rerender(); });
     return () => m.map.remove();
@@ -164,7 +172,7 @@ function GameView({ dm }: { dm: Demand }) {
       m.setDrawing(!!draft);
       if (!draft) { m.setDraft([], 0, [], ''); return; }
       const color = draft.editing?.color ?? routeStyle(game.routes.length).color;
-      const rp = routePath(draft.stops);
+      const rp = routePath(draft.stops, (draft.editing?.type ?? draft.type) === 'circ');
       m.setDraft(rp.path, rp.outN, rp.stopPts, color);
     });
     return () => { live = false; };
@@ -186,7 +194,23 @@ function GameView({ dm }: { dm: Demand }) {
   const bin = game.bin, t = game.target, got = game.todayRiders, share = game.dayShare();
   const full = t * RULES.bonus;
 
-  const routeAt = route ? ((sel as { at?: [number, number] }).at ?? route.path[Math.floor(route.outN / 2)] ?? route.path[0]) : null;
+  const nRoutes = game.routes.length;
+  useEffect(() => { onCarScroll(); }, [nRoutes, onCarScroll]);
+  useEffect(() => {
+    if (focusId == null) return;
+    carEl.current?.querySelector(`[data-rid="${focusId}"]`)?.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'smooth' });
+  }, [focusId, nRoutes]);
+  // 노선 팝업은 노선 맨 위(가장 북쪽) 점에 붙여서, 위로 뜬 카드가 노선을 덮지 않게
+  const routeAt = route ? route.path.reduce((a, p) => (p[1] > a[1] ? p : a), route.path[0]) : null;
+  // 노선을 고르면 한 바퀴 전체가 위 상태 막대·팝업과 아래 막대 사이에 보이게 (같은 노선을 다시 고르면 그대로)
+  useEffect(() => {
+    const m = gm.current?.map, r = game.routes.find(x => x.id === focusId), app = appEl.current;
+    if (!m || !r || !app || r.path.length < 2) return;
+    const cs = getComputedStyle(app), topH = parseFloat(cs.getPropertyValue('--top-h')) || 50, barH = parseFloat(cs.getPropertyValue('--bar-h')) || 110;
+    const popH = (app.querySelector('.popup') as HTMLElement | null)?.offsetHeight ?? 120;
+    let w = 180, so = 90, e = -180, n = -90; for (const [x, y] of r.path) { w = Math.min(w, x); e = Math.max(e, x); so = Math.min(so, y); n = Math.max(n, y); }
+    m.fitBounds([[w, so], [e, n]], { padding: { top: topH + 8 + popH + 36, bottom: barH + 24, left: 28, right: 28 }, maxZoom: 15, duration: 600 });
+  }, [focusId, game]);
   const speedName = (n: number) => `1초에 게임 ${n}분`;
 
   return (
@@ -216,8 +240,8 @@ function GameView({ dm }: { dm: Demand }) {
       </button>
       <div className="box" id="helpbox"><button className="zb" aria-pressed={help} aria-label="화면 설명" onClick={() => setHelp(h => !h)}>?</button></div>
       <div className="box" id="zoom">
-        <button className="zb" aria-label="축소" onClick={() => gm.current?.map.zoomOut()}><svg viewBox="0 0 24 24"><path d="M5 12h14" /></svg></button>
         <button className="zb" aria-label="확대" onClick={() => gm.current?.map.zoomIn()}><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
+        <button className="zb" aria-label="축소" onClick={() => gm.current?.map.zoomOut()}><svg viewBox="0 0 24 24"><path d="M5 12h14" /></svg></button>
       </div>
 
       {/* 지도 위 팝업: 노선 / 헥사곤 */}
@@ -231,21 +255,23 @@ function GameView({ dm }: { dm: Demand }) {
       </MapPopup>}
 
       {/* 아래: 노선 막대 + 재생 줄 (그리는 중엔 노선 그리기 패널) */}
-      <footer className="box" id="bottom" ref={barEl}>
-        {draft ? <div className="panel"><DraftPanel dm={dm} game={game} draft={draft} ev={draftEval} setDraft={setDraft} onCancel={cancelDraft} onDone={finishDraft} /></div> : <>
-        <div id="routebar">
-          {!draft && <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기">+</button>}
-          {game.routes.map(r => <button key={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.from}에서 ${r.to}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => setSel(focusId === r.id ? null : { kind: 'route', id: r.id })}>
+      <footer id="bottom" ref={barEl}>
+        {draft ? <div className="box panel"><DraftPanel dm={dm} game={game} draft={draft} ev={draftEval} setDraft={setDraft} onCancel={cancelDraft} onDone={finishDraft} /></div> : <>
+        {/* + 는 왼쪽 고정, 노선은 옆으로 넘기는 캐러셀 */}
+        <div className="box" id="routebar">
+          <button className="chip add" onClick={() => startDraft()} aria-label="새 노선 만들기">+</button>
+          <i className="divider" aria-hidden="true" />
+          <div className={`carousel ${fade}`} ref={carEl} onScroll={onCarScroll}>
+          {game.routes.map(r => <button key={r.id} data-rid={r.id} className="chip" aria-pressed={focusId === r.id} aria-label={`${r.num}번 ${TYPES[r.type]}, ${r.from}에서 ${r.to}, 버스 ${r.buses}대, 배차 ${fmtHw(r.headway)}분`} onClick={() => setSel(focusId === r.id ? null : { kind: 'route', id: r.id })}>
             <span className="n" style={{ background: r.color, color: r.tx }}>{r.num}</span>
             <span className="m"><span><Icon n="bus" s={13} />{r.buses}</span><span><Icon n="clock" s={13} />{fmtHw(r.headway)}′</span></span></button>)}
+          </div>
         </div>
-          <div className="r1">
-            <div className="when"><span className="clock">{hhmm(game.minuteOfDay)}</span>
-              <span className="day" aria-label={`${game.day}일차, ${dm.bins[bin].name} 시간대`}>D{game.day} <span className="seg-chip"><Icon n={`b${bin}`} s={12} />{hh(dm.bins[bin].from)}–{hh(dm.bins[bin].to)}</span></span></div>
-            <div className="speed" role="group" aria-label="시간 속도">
+          <div className="box r1">
+            <div className="when" aria-label={`${game.day}일차 ${hhmm(game.minuteOfDay)}`}><span className="day">D{game.day}</span><span className="bar" aria-hidden="true">|</span><span className="clock">{hhmm(game.minuteOfDay)}</span></div>
+            <div className="seg speed" role="group" aria-label="시간 속도">
               <button aria-pressed={game.speed === 0} aria-label="일시정지" onClick={() => { game.pause(); rerender(); }}><svg viewBox="0 0 16 16"><rect x="3" y="2" width="3.5" height="12" /><rect x="9.5" y="2" width="3.5" height="12" /></svg></button>
-              <button aria-pressed={game.speed > 0} aria-label={game.speed ? `${speedName(game.speed)}, 누르면 ${speedName(Game.SPEEDS[(Game.SPEEDS.indexOf(game.speed) + 1) % 3])}` : `재생, ${speedName(game.lastSpeed)}`} onClick={() => { game.play(); rerender(); }}>
-                <PlayIcon n={Game.SPEEDS.indexOf(game.speed || game.lastSpeed) + 1} /></button>
+              {Game.SPEEDS.map((v, i) => <button key={v} aria-pressed={game.speed === v} aria-label={speedName(v)} onClick={() => { game.setSpeed(v); rerender(); }}><Tri n={i + 1} /></button>)}
             </div>
           </div>
         </>}
@@ -267,8 +293,8 @@ function GameView({ dm }: { dm: Demand }) {
         </dl>
         <p><b>노선:</b> 아래 노선 막대의 + 를 누르고 헥사곤을 하나씩 탭하면 그 칸마다 정류장이 생겨요. 그리는 동안 노선 막대와 재생 줄이 노선 그리기 패널로 바뀌어요. 투입할 버스 대수를 정하면 배차간격이 계산돼요. 정류장이 많을수록 한 바퀴가 길어져 간격이 벌어져요.</p>
         <p><b>지도:</b> 헥사곤이나 노선을 누르면 지도 위에 카드가 떠요. 헥사곤 카드에서는 그 칸에서 가고 싶은 곳(파랑 실선)과 오고 싶은 곳(주황 점선)이 보여요. 멀리서 보면 노선은 단순한 선 하나로 보여요.</p>
-        <p><b>화면:</b> 위는 회사 상태(오늘 수송/목표, 페이스, 연속 미달, 버스)예요. 누르면 회사 현황이 펼쳐져요. 아래는 노선 막대(+로 새 노선)와 시계·재생 줄이에요.</p>
-        <p><b>시간:</b> ▶를 누를 때마다 현실 1초에 게임 1분(▶) → 5분(▶▶) → 10분(▶▶▶). ❚❚는 멈춤.</p>
+        <p><b>화면:</b> 위는 회사 상태(오늘 수송/목표, 페이스, 연속 미달, 버스)예요. 누르면 회사 현황이 펼쳐져요. 아래는 노선 막대(+로 새 노선)와 날짜·시각·속도 줄이에요. 지금 시간대는 위 막대를 펼치면 보여요.</p>
+        <p><b>시간:</b> 아래 줄 오른쪽에서 속도를 골라요: ❚❚ 멈춤, ▶·▶▶·▶▶▶ = 현실 1초에 게임 1분·5분·10분.</p>
         <p><b>규칙:</b> 매일 05시 정산. 목표의 150%를 3일 연속 넘기면 버스 +10대, 3일 연속 목표를 못 채우면 게임 오버예요.</p>
       </div></div>}
 
@@ -362,11 +388,8 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClo
   </>;
 }
 
-// 재생 아이콘: 속도 단계만큼 삼각형 (▶ 1분, ▶▶ 5분, ▶▶▶ 10분 / 현실 1초)
-function PlayIcon({ n }: { n: number }) {
-  const w = n > 2 ? 5 : 7, x0 = (16 - w * n) / 2 + (n > 1 ? 0 : 0.5);
-  return <svg viewBox="0 0 16 16">{Array.from({ length: n }, (_, i) => <path key={i} d={`M${x0 + i * w} ${n > 2 ? 4 : 2.5}v${n > 2 ? 8 : 11}l${w} ${n > 2 ? -4 : -5.5}z`} />)}</svg>;
-}
+// 속도 아이콘: 삼각형 1·2·3개 (1분·5분·10분 / 현실 1초)
+const Tri = ({ n }: { n: number }) => <svg viewBox={`0 0 ${7 * n + 2} 16`} style={{ width: 7 * n + 2, height: 16 }}>{Array.from({ length: n }, (_, i) => <path key={i} d={`M${1 + i * 7} 2.5v11l7-5.5z`} />)}</svg>;
 
 // 지도 위 팝업 카드: 지도 점 at에 붙어서 지도를 움직이면 따라가고, 화면 밖으로 나가지 않게 위·아래 막대 사이에 맞춰요
 function MapPopup({ map, at, wide, onClose, children }: { map: MLMap; at: [number, number]; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
@@ -417,5 +440,6 @@ function CompanyPanel({ game }: { game: Game }) {
   return <>
     <div className="quick"><Stat i="flag" v={fmt(game.target)} label={`하루 목표 (버스 ${game.goalFleet}대 × ${RULES.perBus})`} /><Stat i="person" v={fmt(game.todayRiders)} label="오늘 수송" /><Stat i="miss" v={fmt(game.todayMissed)} label="오늘 놓침" /></div>
     <div className="quick"><Stat i="route" v={game.routes.length} label="노선 수" /><Stat i="up" v={`${game.hit}/${RULES.bonusDays}`} label="목표 150% 연속 달성 일수" /><Stat i="warn" v={`${game.miss}/${RULES.maxMiss}`} label="연속 미달 일수" warn={game.miss > 0} /></div>
+    <div className="quick"><Stat i={`b${game.bin}`} v={`${hh(game.dm.bins[game.bin].from)}–${hh(game.dm.bins[game.bin].to)}`} label={`지금 시간대: ${game.dm.bins[game.bin].name}`} /></div>
   </>;
 }

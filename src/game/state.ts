@@ -19,6 +19,7 @@ export class Game {
   speed = 1;                      // 현실 1초에 흐르는 게임 분: 0 정지, 1, 5, 10
   lastSpeed = 1;                  // 정지 뒤 다시 재생할 속도
   static SPEEDS = [1, 5, 10];
+  setSpeed(v: number) { this.speed = this.lastSpeed = v; }
   pause() { if (this.speed) this.lastSpeed = this.speed; this.speed = 0; }
   play() { if (!this.speed) { this.speed = this.lastSpeed; return; } const S = Game.SPEEDS; this.speed = this.lastSpeed = S[(S.indexOf(this.speed) + 1) % S.length]; }
   fleet = RULES.fleet0;           // 보유 버스

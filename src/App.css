@@ -15,7 +15,6 @@
 #topbar .panel{border-top:2px solid var(--ink);padding-top:9px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:14px}
 #bottom .r1{border-top:2px solid var(--ink);padding-top:5px}
 #bottom .clock{font-size:18px}
-#routebar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
 #routebar::-webkit-scrollbar{display:none}
 /* 아래: 상태 막대 (그리는 중엔 노선 그리기 패널) */
 #bottom{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));padding:7px 9px;display:flex;flex-direction:column;gap:6px;z-index:3;max-height:62%}
@@ -214,3 +213,34 @@ dl.icons dd{margin:0}
 .need{opacity:.7}
 .head h2 .sub{font-size:13px}
 #topbar .money .v{font-size:15px}
+
+/* 아래 재생 줄: D1 | 11:11  [❚❚|1′|5′|10′] */
+#bottom .r1{justify-content:space-between}
+#bottom .when{flex-direction:row;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums}
+#bottom .when .day{font-size:15px;font-weight:800;color:var(--fg)}
+#bottom .when .bar{color:var(--muted)}
+#bottom .seg.speed{margin:0;padding:0;gap:0;background:#fff}
+#bottom .seg.speed button{width:auto;min-width:48px;height:44px;font-size:14px;font-weight:800;color:var(--muted);box-shadow:none}
+#bottom .seg.speed button+button{border-left:2px solid var(--ink)}
+#bottom .seg.speed button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+#bottom .seg.speed svg{fill:currentColor;display:block}
+
+/* 노선 막대: + 왼쪽 고정, 노선 캐러셀 */
+#routebar{display:flex;align-items:center;gap:6px;overflow:visible}
+#routebar .divider{flex:none;width:2px;align-self:stretch;background:var(--ink);opacity:.35}
+#routebar .carousel{flex:1;min-width:0;display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;scrollbar-width:none;scroll-padding:0 2px}
+#routebar .carousel::-webkit-scrollbar{display:none}
+#routebar .carousel .chip{scroll-snap-align:start}
+#routebar .carousel.fr{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+#routebar .carousel.fl{-webkit-mask-image:linear-gradient(90deg,transparent,#000 28px);mask-image:linear-gradient(90deg,transparent,#000 28px)}
+#routebar .carousel.fl.fr{-webkit-mask-image:linear-gradient(90deg,transparent,#000 28px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
+
+/* 아래: 노선 상자와 재생 상자를 따로 (사이로 지도가 보여요) */
+#bottom{background:none;border:0;padding:0;gap:8px;max-height:none}
+#bottom > .box{padding:6px 8px}
+#bottom > .r1{border-top:0;padding-top:4px;padding-bottom:4px}
+#bottom > .panel{max-height:52vh}
+/* 줌: 위 +, 아래 − */
+#zoom{flex-direction:column}
+#helpbox{bottom:calc(var(--bar-h) + 16px + 100px + env(safe-area-inset-bottom,0px))}
+#legend{bottom:calc(var(--bar-h) + 16px + env(safe-area-inset-bottom,0px))}

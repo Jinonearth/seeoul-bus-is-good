@@ -22,7 +22,7 @@ export const DWELL_PER = 0.03;     // 1명 타고 내릴 때마다 약 2초
 export const DWELL_EST = 0.4;      // 한 바퀴 시간 계산용 정류장당 평균 정차(분)
 export const BUS_CAP = 75;
 export const CAP_H = BUS_CAP * 3 * 2;   // 버스 한 대 한 시간 정원 = 75인승 × 구간 회전 3 × 양방향
-export const CAPTURE = 0.23;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
+export const CAPTURE = 0.17;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
 export const MIN_GAP = 2;               // 이보다 가까운 정류장 사이(헥사곤 칸 수)는 걸어감
 
 // ── 노선 표기 (색약 고려: 색 + 패턴) ──
@@ -66,13 +66,14 @@ export const center = (id: string): [number, number] => { const [lat, lng] = cel
 // 노선 한 바퀴: 가는 길 정류장 1→…→N, 오는 길 N→…→1을 실제 도로(일방통행, 유턴 금지)로 이은 고리.
 // 오는 길 정류장은 그 방향으로 지나는 도로 위 후보 자리에 서요(길 건너편 정류장). 종점에서는 블록을 돌아(P턴) 돌아와요.
 // 도로 그래프를 아직 못 읽었으면 지나는 셀의 도로 위 점을 잇고 같은 길로 되돌아와요.
+// 순환(circ)은 1→…→N→1 한 방향으로만 돌아요.
 // lenKm = 한 바퀴의 절반(편도 평균). 두 정류장 사이 길을 못 찾으면 직선으로 잇고 broken
-export function routePath(stops: string[]) {
+export function routePath(stops: string[], circ = false) {
   const n = stops.length, path: [number, number][] = [], visits: { s: number; i: number }[] = [], stopPts: [number, number][] = [];
   let broken = false, uturn = false, outN = 0;
   const cum = [0], push = (pts: [number, number][]) => { for (const p of pts) { if (path.length) cum.push(cum[cum.length - 1] + hav(path[path.length - 1], p)); path.push(p); } };
   if (n === 0) return { path, cum, visits, outN, stopPts, lenKm: 0, broken, uturn };
-  const order = [...stops.keys(), ...[...stops.keys()].reverse().slice(1)];   // 0..N-1, N-2..0
+  const order = circ ? [...stops.keys(), 0] : [...stops.keys(), ...[...stops.keys()].reverse().slice(1)];   // 순환 0..N-1,0 / 왕복 0..N-1, N-2..0
   if (n === 1) { push([snapped(stops[0])]); return { path, cum, visits: [{ s: 0, i: 0 }], outN: 0, stopPts: [path[0]], lenKm: 0, broken, uturn }; }
   if (roadsReady() && order.every(i => snapInfo(stops[i]))) {
     const start = snapInfo(stops[0])![0];
@@ -96,6 +97,7 @@ export function routePath(stops: string[]) {
     }
     visits.unshift({ s: 0, i: 0 }); stops.forEach(s => stopPts.push(snapped(s)));
   }
+  if (circ) outN = path.length - 1;
   return { path, cum, visits, outN, stopPts, lenKm: cum[cum.length - 1] / 2, broken, uturn };
 }
 
@@ -123,12 +125,12 @@ function catchments(dm: Demand, stops: string[]) {
   return C;
 }
 
-export const cycleOf = (lenKm: number, nStops: number) => 2 * lenKm / SPEED + Math.max(0, 2 * nStops - 2) * DWELL_EST;
+export const cycleOf = (lenKm: number, nVisits: number) => 2 * lenKm / SPEED + nVisits * DWELL_EST;   // 한 바퀴 = 고리 길이 / 속도 + 서는 횟수 × 평균 정차
 export const freqFactor = (headway: number) => Math.min(1, Math.max(0.3, 1.25 - headway / 40));
 
 export function evalRoute(dm: Demand, stops: string[], buses: number, type: RouteType = 'trunk'): Eval {
-  const geo = routePath(stops);
-  const nb = Math.max(1, buses), cyc = cycleOf(geo.lenKm, stops.length), headway = cyc / nb;
+  const geo = routePath(stops, type === 'circ');
+  const nb = Math.max(1, buses), cyc = cycleOf(geo.lenKm, stops.length > 1 ? geo.visits.length : 0), headway = cyc / nb;
   const C = catchments(dm, stops);
   const n = stops.length, demand = Array(NB).fill(0), w = stops.map(() => 0), pair = new Float64Array(NB * n * n);
   for (let i = 0; i < stops.length; i++) for (let j = 0; j < stops.length; j++) {
@@ -200,6 +202,7 @@ export function moveBus(r: Route, b: Bus, gm: number, serve: Serve) {
 // 가는 길(k < n-1): 뒤쪽 정류장 j > i, 내릴 자리 = j. 오는 길(k ≥ n-1): 앞쪽 j < i, 내릴 자리 = (2n-2-j) % 자리 수
 export function destsOf(r: Route, k: number): [number, number][] {
   const n = r.stops.length, len = r.visits.length, i = r.visits[k].i, out: [number, number][] = [];
+  if (r.type === 'circ') { for (let d = 1; d < n; d++) { const j = (i + d) % n; out.push([j, j]); } return out; }   // 순환: 한 방향으로 돌며 어디든, 내릴 자리 = j
   if (k < n - 1) for (let j = i + 1; j < n; j++) out.push([j, j]);
   else for (let j = i - 1; j >= 0; j--) out.push([j, (2 * n - 2 - j) % len]);
   return out;
