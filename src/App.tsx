@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
-import { latLngToCell, cellToParent, cellToChildren, gridDisk, cellToLatLng } from 'h3-js';
+import { latLngToCell, cellToParent, cellToChildren, gridDisk, gridDiskDistances, cellToLatLng } from 'h3-js';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
@@ -15,12 +15,49 @@ import { GameMap, type Layer, type Flow, setCoverage, resForZoom } from './map/G
 
 // at: 팝업을 붙일 지도 위 점 (경도, 위도)
 type Sel = { kind: 'hex'; cell: string; at: [number, number] } | { kind: 'route'; id: number; at?: [number, number] } | { kind: 'draft' } | null;
-type Draft = { stops: string[]; type: RouteType; buses: number; editing?: Route };
+type Draft = { stops: string[]; type: RouteType; buses: number; editing?: Route; added?: string };   // added: 근처 노선에 새로 끼운 정류장
 const LAYER_NAME: Record<Layer, string> = { o: '출발 수요', d: '도착 수요', u: '버스가 닿지 않는 출발 수요' };
 const LAYER_ICON: Record<Layer, string> = { o: 'out', d: 'in', u: 'gap' };
 const hh = (h: number) => String(h).padStart(2, '0');
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 const fmtHw = (h: number) => (h < 10 ? h.toFixed(1) : String(Math.round(h)));
+const sgn = (v: number, f: (x: number) => string) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${f(Math.abs(v))}`;
+
+// ── 근처 노선에 정류장 더하기 ──
+// 노선이 지나는 res9 셀(경로를 약 80m마다 찍어서). 경로가 바뀌면 다시
+const pathCells = new WeakMap<[number, number][], Set<string>>();
+function cellsOf(r: Route) {
+  let s = pathCells.get(r.path); if (s) return s;
+  s = new Set<string>();
+  for (let i = 1; i < r.path.length; i++) {
+    const [a, b] = [r.path[i - 1], r.path[i]], n = Math.max(1, Math.ceil(Math.hypot((b[0] - a[0]) * 88, (b[1] - a[1]) * 111) / 0.08));
+    for (let k = 0; k <= n; k++) s.add(latLngToCell(a[1] + (b[1] - a[1]) * k / n, a[0] + (b[0] - a[0]) * k / n, 9));
+  }
+  pathCells.set(r.path, s); return s;
+}
+// 누른 칸에서 정류장으로 쓸 res9 칸: 그 칸이 되면 그대로, 아니면 보이는 헥사곤 안에서 at에 가장 가까운 정류장 가능 칸
+function stopCellFor(cell: string, at: [number, number]) {
+  const res = parseInt(cell[1], 16) & 15;
+  if (res === 9 && stopable(cell)) return cell;
+  const cand = res < 9 ? cellToChildren(cell, 9) : gridDisk(cell, 1);
+  return cand.filter(stopable).map(x => { const p = snapped(x); return [x, ((p[0] - at[0]) * 0.79) ** 2 + (p[1] - at[1]) ** 2] as const; }).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
+}
+// 이 칸에서 3칸 안을 지나는 노선, 가까운 순 4개까지
+function routesNear(routes: Route[], cell: string) {
+  const ring = gridDiskDistances(cell, 3), out: [Route, number][] = [];
+  for (const r of routes) { const cs = cellsOf(r); const k = ring.findIndex(rg => rg.some(c => cs.has(c))); if (k >= 0) out.push([r, k]); }
+  return out.sort((a, b) => a[1] - b[1]).slice(0, 4).map(x => x[0]);
+}
+// 정류장을 끼울 자리: 앞뒤 정류장 사이 중 한 바퀴가 가장 덜 늘어나는 곳. 직선 거리로 후보 셋을 고른 뒤 실제 도로 길로 비교
+function insertStop(r: Route, cell: string) {
+  const d = (a: string, b: string) => { const p = snapped(a), q = snapped(b); return Math.hypot((p[0] - q[0]) * 88, (p[1] - q[1]) * 111); };
+  const n = r.stops.length, pos: number[] = [];
+  for (let i = 1; i < n; i++) pos.push(i);
+  if (r.type === 'circ') pos.push(n);
+  const best = pos.map(i => [i, d(r.stops[i - 1], cell) + d(cell, r.stops[i % n]) - d(r.stops[i - 1], r.stops[i % n])] as const).sort((a, b) => a[1] - b[1]).slice(0, 3)
+    .map(([i]) => { const st = [...r.stops.slice(0, i), cell, ...r.stops.slice(i)]; return [st, routePath(st, r.type === 'circ').lenKm] as const; }).sort((a, b) => a[1] - b[1])[0];
+  return best ? best[0] : [...r.stops, cell];
+}
 
 export default function App() {
   const [dm, setDm] = useState<Demand | null>(null);
@@ -175,7 +212,7 @@ function GameView({ dm }: { dm: Demand }) {
       if (!draft) { m.setDraft([], 0, [], ''); return; }
       const color = draft.editing?.color ?? routeStyle(game.routes.length).color;
       const rp = routePath(draft.stops, (draft.editing?.type ?? draft.type) === 'circ');
-      m.setDraft(rp.path, rp.outN, draft.stops.map(snapped), color);   // 정류장 표시는 셀마다 하나
+      m.setDraft(rp.path, rp.outN, draft.stops.map(snapped), color, draft.added ? draft.stops.indexOf(draft.added) : -1);   // 정류장 표시는 셀마다 하나, 새로 끼운 칸은 노란 점
     });
     return () => { live = false; };
   }, [draft, game]);
@@ -215,6 +252,13 @@ function GameView({ dm }: { dm: Demand }) {
     carEl.current?.querySelector(`[data-rid="${focusId}"]`)?.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'smooth' });
   }, [focusId, nRoutes]);
   // 노선 팝업은 노선 맨 위(가장 북쪽) 점에 붙여서, 위로 뜬 카드가 노선을 덮지 않게
+  // 헥사곤 카드: 정류장으로 쓸 칸과 3칸 안 노선
+  const hexStop = sel?.kind === 'hex' ? stopCellFor(sel.cell, sel.at) : null;
+  const hexNear = hexStop ? routesNear(game.routes, hexStop).map(r => ({ r, has: r.stops.includes(hexStop) })) : [];
+  const addStopTo = (id: number) => {
+    const r = game.routes.find(x => x.id === id); if (!r || !hexStop || r.stops.includes(hexStop)) return;
+    setDraft({ stops: insertStop(r, hexStop), type: r.type, buses: r.buses, editing: r, added: hexStop }); setSel({ kind: 'draft' });
+  };
   const routeAt = route ? route.path.reduce((a, p) => (p[1] > a[1] ? p : a), route.path[0]) : null;
   // 노선을 고르면 한 바퀴 전체가 위 상태 막대·팝업과 아래 막대 사이에 보이게 (같은 노선을 다시 고르면 그대로)
   useEffect(() => {
@@ -265,7 +309,7 @@ function GameView({ dm }: { dm: Demand }) {
           onChange={() => { redrawRoutes(); rerender(); }} />
       </MapPopup>}
       {gm.current && sel?.kind === 'hex' && <MapPopup map={gm.current.map} at={sel.at} wide={more} onClose={() => setSel(null)}>
-        <HexPanel dm={dm} cell={sel.cell} bin={bin} routes={game.routes.filter(r => r.stops.includes(sel.cell))} onRoute={id => setSel({ kind: 'route', id })} more={more} setMore={setMore} onClose={() => setSel(null)} onStart={() => startDraft(latLngToCell(...cellToLatLng(sel.cell), 9))} />
+        <HexPanel dm={dm} cell={sel.cell} bin={bin} routes={game.routes.filter(r => r.stops.includes(sel.cell))} onRoute={id => setSel({ kind: 'route', id })} near={hexNear} onAddTo={addStopTo} more={more} setMore={setMore} onClose={() => setSel(null)} onStart={() => startDraft(latLngToCell(...cellToLatLng(sel.cell), 9))} />
       </MapPopup>}
 
       {/* 아래: 노선 막대 + 재생 줄 (그리는 중엔 노선 그리기 패널) */}
@@ -342,7 +386,7 @@ const Stat = ({ i, v, label, warn }: { i: string; v: React.ReactNode; label: str
   <div className={warn ? 'warn' : ''} aria-label={label}><Icon n={i} s={15} /><b>{v}</b></div>;
 
 // 헥사곤 팝업: 동 이름(구) ⌄ ✕ / 지금 시간당 출발·도착 / + 여기서 노선. ⌄로 시간대 그래프와 가고 싶은 곳·오고 싶은 곳
-function HexPanel({ dm, cell, bin, routes, onRoute, onStart, onClose, more, setMore }: { dm: Demand; cell: string; bin: number; routes: Route[]; onRoute: (id: number) => void; onStart: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
+function HexPanel({ dm, cell, bin, routes, onRoute, near, onAddTo, onStart, onClose, more, setMore }: { dm: Demand; cell: string; bin: number; routes: Route[]; onRoute: (id: number) => void; near: { r: Route; has: boolean }[]; onAddTo: (id: number) => void; onStart: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
   const [lat, lng] = cellToLatLng(cell), c9 = dm.byId.get(latLngToCell(lat, lng, 9));
   const res = parseInt(cell[1], 16) & 15;
   const agg = res === 9 ? c9 : dm.parents[res === 7 ? 0 : 1].get(cell);
@@ -355,7 +399,10 @@ function HexPanel({ dm, cell, bin, routes, onRoute, onStart, onClose, more, setM
       <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={14} /></button></div>
     <div className="pg"><span aria-label="지금 시간당 출발"><Icon n="out" s={14} /><b>{fmt(perH(agg.O, bin))}</b><small>/h</small></span><span aria-label="지금 시간당 도착"><Icon n="in" s={14} /><b>{fmt(perH(agg.D, bin))}</b><small>/h</small></span></div>
     {routes.length > 0 && <div className="proutes" aria-label="이 정류장에 서는 노선">{routes.map(r => <button key={r.id} className="badge" style={{ background: r.color, color: r.tx }} onClick={() => onRoute(r.id)} aria-label={`${r.num}번`}>{r.num}</button>)}</div>}
-    <button className="pgo" onClick={onStart} aria-label="여기서 노선 시작">+ <Icon n="route" s={16} /></button>
+    <div className="padd">
+      <button className="pgo" onClick={onStart} aria-label="여기서 새 노선 시작">+ <Icon n="route" s={16} /></button>
+      {near.map(({ r, has }) => <button key={r.id} className="pnear" disabled={has} onClick={() => onAddTo(r.id)} aria-label={has ? `${r.num}번은 이미 여기 서요` : `${r.num}번 노선에 이 칸 정류장 더하기`}><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b>+●</b></button>)}
+    </div>
     {more && <>
       <div className="psec"><div className="bins">{dm.bins.map((b, i) => <div key={i} className={i === bin ? 'now' : ''} aria-label={`${b.name} 출발 ${fmt(perH(agg.O, i))}, 도착 ${fmt(perH(agg.D, i))} (시간당)`}>
         <span className="bo" style={{ height: `${perH(agg.O, i) / peak * 100}%` }} /><span className="bd" style={{ height: `${perH(agg.D, i) / peak * 100}%` }} /><small><Icon n={`b${i}`} s={13} /></small></div>)}</div></div>
@@ -447,7 +494,7 @@ function MapPopup({ map, at, wide, onClose, children }: { map: MLMap; at: [numbe
 
 function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Demand; game: Game; draft: Draft; ev: ReturnType<typeof evalRoute> | null; setDraft: (d: Draft) => void; onCancel: () => void; onDone: () => void }) {
   const free = game.fleet - game.usedBuses(draft.editing), ok = draft.buses <= free;
-  const day = ev ? ev.carried.reduce((a, b) => a + b, 0) : 0;
+  const day = ev ? ev.carried.reduce((a, b) => a + b, 0) : 0, e0 = draft.editing;   // 고칠 때는 지금 노선과의 차이도
   return <>
     <div className="head" style={{ justifyContent: 'space-between' }}>
       <h2 aria-label={draft.editing ? `${draft.editing.num}번 수정` : '새 노선'}>{draft.editing ? <><Icon n="edit" s={18} /> {draft.editing.num}</> : <>+<Icon n="route" s={20} /></>} <span className="sub"><Icon n="stop" s={14} label="정류장" />{draft.stops.length}{(ev?.broken || ev?.uturn) && <> <Icon n="warn" s={14} label="도로로 잇지 못한 구간" className="bad" /></>}</span></h2>
@@ -456,7 +503,7 @@ function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Deman
         <button className="btn icon" onClick={onCancel} aria-label="취소"><Icon n="x" s={18} /></button>
         <button className="btn icon primary" disabled={draft.stops.length < 2 || !ok} onClick={onDone} aria-label={draft.editing ? '수정 완료' : '개설'}><Icon n="ok" s={20} /></button></div></div>
     <Stepper n={draft.buses} min={1} max={free} free={free - draft.buses} onSet={n => setDraft({ ...draft, buses: n })} />
-    <div className="quick"><Stat i="clock" v={ev ? `${fmtHw(ev.headway)}′` : '–'} label="배차간격" /><Stat i="loop" v={ev ? `${Math.round(ev.cyc)}′` : '–'} label="한 바퀴" /><Stat i="person" v={ev ? `~${fmt(day)}` : '–'} label="하루 수송 예상" /></div>
+    <div className="quick"><Stat i="clock" v={ev ? <>{fmtHw(ev.headway)}′{e0 && <small className="dlt">{sgn(ev.headway - e0.headway, fmtHw)}′</small>}</> : '–'} label="배차간격" /><Stat i="loop" v={ev ? <>{Math.round(ev.cyc)}′{e0 && <small className="dlt">{sgn(Math.round(ev.cyc - e0.cyc), String)}′</small>}</> : '–'} label="한 바퀴" /><Stat i="person" v={ev ? <>~{fmtK(day)}{e0 && <small className="dlt">{sgn(day - e0.carried.reduce((a, b) => a + b, 0), fmtK)}</small>}</> : '–'} label="하루 수송 예상" /></div>
     {!draft.editing && <div className="seg" role="group" aria-label="노선 종류">{(Object.keys(TYPES) as RouteType[]).map(k => <button key={k} aria-pressed={draft.type === k} aria-label={TYPES[k]} onClick={() => setDraft({ ...draft, type: k })}><Icon n={k} s={20} /></button>)}</div>}
   </>;
 }

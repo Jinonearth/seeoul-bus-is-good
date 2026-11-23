@@ -339,13 +339,13 @@ export class GameMap {
   setDrawing(on: boolean) { this.map.setLayoutProperty('hex9-ns', 'visibility', on ? 'visible' : 'none'); }
 
   // 그리는 중인 노선: 가는 길은 굵게, 오는 길은 가늘게. 버스가 서는 도로 위 자리마다 점
-  setDraft(path: [number, number][], outN: number, pts: [number, number][], color: string) {
+  setDraft(path: [number, number][], outN: number, pts: [number, number][], color: string, hi = -1) {
     const f: GeoJSON.Feature[] = [];
     if (path.length > 1) {
       f.push({ type: 'Feature', properties: { color, back: false }, geometry: { type: 'LineString', coordinates: path.slice(0, outN + 1) } });
       if (outN < path.length - 1) f.push({ type: 'Feature', properties: { color, back: true }, geometry: { type: 'LineString', coordinates: path.slice(outN) } });
     }
-    pts.forEach((p, i) => f.push({ type: 'Feature', properties: { color, first: i === 0 }, geometry: { type: 'Point', coordinates: p } }));
+    pts.forEach((p, i) => f.push({ type: 'Feature', properties: { color: i === hi ? '#FFB800' : color, first: i === 0 || i === hi }, geometry: { type: 'Point', coordinates: p } }));
     (this.map.getSource('draft') as GeoJSONSource).setData(fc(f));
   }
 

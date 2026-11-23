@@ -381,3 +381,13 @@ dl.icons dd{margin:0}
   .help .box{max-width:440px}
 }
 @media (min-width:1200px){ #app{--box-max:640px} }
+
+/* 헥사곤 카드: 새 노선 + 근처 노선에 정류장 더하기 */
+.popup .padd{display:flex;gap:6px;margin:8px 10px 10px;flex-wrap:wrap}
+.popup .padd .pgo{margin:0;flex:1 0 64px}
+.popup .pnear{height:32px;border:2px solid var(--ink);background:#fff;display:flex;align-items:center;gap:4px;padding:0 6px 0 4px;cursor:pointer;position:relative}
+.popup .pnear::after{content:'';position:absolute;inset:-6px -2px}
+.popup .pnear .badge{height:20px;line-height:20px;padding:0 5px;font-size:13px}
+.popup .pnear b{font-size:12px;line-height:20px}
+.popup .pnear:disabled{opacity:.35;cursor:default}
+.dlt{font-size:11px;color:var(--muted);margin-left:4px;font-weight:700}
