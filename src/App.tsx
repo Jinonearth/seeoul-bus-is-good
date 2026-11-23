@@ -195,6 +195,18 @@ function GameView({ dm }: { dm: Demand }) {
   const full = t * RULES.bonus;
 
   const nRoutes = game.routes.length;
+  // 마우스로도 넘기기: 세로 휠 → 가로, 끌어서 넘기기(5px 넘게 움직이면 끌기, 그때는 칩 누름 무시)
+  useEffect(() => {
+    const c = carEl.current; if (!c) return;
+    const wheel = (e: WheelEvent) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && c.scrollWidth > c.clientWidth) { e.preventDefault(); c.scrollLeft += e.deltaY; } };
+    let x0 = 0, s0 = 0, down = false, drag = false;
+    const pd = (e: PointerEvent) => { if (e.pointerType !== 'mouse' || e.button !== 0) return; down = true; drag = false; x0 = e.clientX; s0 = c.scrollLeft; };
+    const pm = (e: PointerEvent) => { if (!down) return; const dx = e.clientX - x0; if (!drag && Math.abs(dx) > 5) { drag = true; c.style.scrollSnapType = 'none'; c.setPointerCapture(e.pointerId); } if (drag) c.scrollLeft = s0 - dx; };
+    const pu = (e: PointerEvent) => { if (!down) return; down = false; if (drag) { c.releasePointerCapture?.(e.pointerId); c.style.scrollSnapType = ''; } };
+    const click = (e: MouseEvent) => { if (drag) { e.stopPropagation(); e.preventDefault(); drag = false; } };
+    c.addEventListener('wheel', wheel, { passive: false }); c.addEventListener('pointerdown', pd); c.addEventListener('pointermove', pm); c.addEventListener('pointerup', pu); c.addEventListener('pointercancel', pu); c.addEventListener('click', click, true);
+    return () => { c.removeEventListener('wheel', wheel); c.removeEventListener('pointerdown', pd); c.removeEventListener('pointermove', pm); c.removeEventListener('pointerup', pu); c.removeEventListener('pointercancel', pu); c.removeEventListener('click', click, true); };
+  }, []);
   useEffect(() => { onCarScroll(); }, [nRoutes, onCarScroll]);
   useEffect(() => {
     if (focusId == null) return;
