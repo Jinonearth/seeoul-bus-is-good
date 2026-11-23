@@ -3,32 +3,48 @@ import type { StyleSpecification } from 'maplibre-gl';
 
 export const INK = '#1D1D1B', PAPER = '#F3F1EA', GROUND = '#ECE8DC', WATER = '#BCD6E6', PINK = '#FF48B0';
 
-export function baseStyle(tilesUrl: string): StyleSpecification {
+// 땅 쓰임 바탕색 (흐리게, 위에 작은 나무·지붕 무늬를 GameMap에서 얹어요)
+export const LAND_FILL: Record<string, string> = { forest: '#D6E2C6', green: '#DEE8CF', res: '#EDE4D6', com: '#E5E1DB', ind: '#E2E0D8' };
+export const ASPHALT = ['#5E5E5E', '#666666', '#777777', '#858585'], ASPHALT_EDGE = '#4A4A4A';
+
+export function baseStyle(tilesUrl: string, landUrl: string): StyleSpecification {
   return {
     version: 8,
     // 한글은 기기 글꼴로 그림(localIdeographFontFamily), 숫자·로마자만 글리프 서버에서
     glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       seoul: { type: 'vector', url: `pmtiles://${tilesUrl}`, attribution: '도로 국토교통부 표준노드링크 · 경계 admdongkor (CC BY 4.0) · 수요 서울시 TOPIS' },
+      land: { type: 'vector', url: `pmtiles://${landUrl}`, attribution: '땅 쓰임 © OpenStreetMap 기여자 (ODbL)' },
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': GROUND } },
+      { id: 'land', type: 'fill', source: 'land', 'source-layer': 'land', minzoom: 11,
+        paint: { 'fill-color': ['match', ['get', 'class'], 'forest', LAND_FILL.forest, 'green', LAND_FILL.green, 'res', LAND_FILL.res, 'com', LAND_FILL.com, LAND_FILL.ind],
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0, 11.6, 1] } },
       { id: 'river', type: 'line', source: 'seoul', 'source-layer': 'river',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         // 한강 폭 약 1km를 줌에 맞춰 픽셀로
         paint: { 'line-color': WATER, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 9, 3, 12, 22, 15, 180] } },
-      { id: 'road-case', type: 'line', source: 'seoul', 'source-layer': 'road',
+      // 도로: 아스팔트. 줌 13 아래는 굵게 부풀린 선, 13부터는 방향별 차로를 합친 면(land.pmtiles road_area) + 짙은 가장자리
+      { id: 'road-case', type: 'line', source: 'seoul', 'source-layer': 'road', maxzoom: 13,
         filter: ['step', ['zoom'], ['==', ['get', 'class'], 0], 11, ['<=', ['get', 'class'], 1], 12, ['<=', ['get', 'class'], 2], 13, true],
         layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': ['-', 3, ['get', 'class']] },
-        paint: { 'line-color': '#A39B88', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'class'], 0, 2.5, 1, 1.8, 1.2], 15, ['match', ['get', 'class'], 0, 9, 1, 7, 2, 5, 3.5]] } },
-      { id: 'road', type: 'line', source: 'seoul', 'source-layer': 'road',
+        paint: { 'line-color': ASPHALT_EDGE, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'class'], 0, 3.2, 1, 2.4, 1.6], 13, ['match', ['get', 'class'], 0, 7, 1, 5.5, 2, 4, 3]] } },
+      { id: 'road', type: 'line', source: 'seoul', 'source-layer': 'road', maxzoom: 13,
         filter: ['step', ['zoom'], ['==', ['get', 'class'], 0], 11, ['<=', ['get', 'class'], 1], 12, ['<=', ['get', 'class'], 2], 13, true],
         layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': ['-', 3, ['get', 'class']] },
-        paint: { 'line-color': '#FFFFFF', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'class'], 0, 1.3, 1, 0.8, 0.5], 15, ['match', ['get', 'class'], 0, 6.5, 1, 4.8, 2, 3.2, 2]] } },
+        paint: { 'line-color': ['match', ['get', 'class'], 0, ASPHALT[0], 1, ASPHALT[1], 2, ASPHALT[2], ASPHALT[3]], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'class'], 0, 2, 1, 1.5, 1], 13, ['match', ['get', 'class'], 0, 5.5, 1, 4.2, 2, 3, 2.2]] } },
+      { id: 'road-area-edge', type: 'line', source: 'land', 'source-layer': 'road_area', minzoom: 13,
+        paint: { 'line-color': ASPHALT_EDGE, 'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.4] } },
+      { id: 'road-area', type: 'fill', source: 'land', 'source-layer': 'road_area', minzoom: 13,
+        paint: { 'fill-color': ['match', ['get', 'class'], 0, ASPHALT[0], 1, ASPHALT[1], 2, ASPHALT[2], ASPHALT[3]] } },
+      // 큰 길 가운데 흰 점선 (줌 14.5부터)
+      { id: 'road-center', type: 'line', source: 'seoul', 'source-layer': 'road', minzoom: 14.5, filter: ['<=', ['get', 'class'], 1],
+        paint: { 'line-color': '#FFFFFF', 'line-opacity': 0.55, 'line-width': 1, 'line-dasharray': [4, 4] } },
       { id: 'dong-line', type: 'line', source: 'seoul', 'source-layer': 'dong', minzoom: 11,
-        paint: { 'line-color': INK, 'line-opacity': 0.35, 'line-width': 1, 'line-dasharray': [3, 3] } },
+        paint: { 'line-color': '#8A867C', 'line-opacity': 0.6, 'line-width': 1, 'line-dasharray': [3, 3] } },
       { id: 'gu-line', type: 'line', source: 'seoul', 'source-layer': 'gu',
-        paint: { 'line-color': INK, 'line-opacity': 0.75, 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.2, 13, 2.4] } },
+        paint: { 'line-color': '#4A4A4A', 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.2, 13, 2.4] } },
     ],
   };
 }

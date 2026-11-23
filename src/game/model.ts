@@ -200,6 +200,8 @@ export const routeName = (r: { type: RouteType; from: string; to: string; gus: s
 export const guName = (dm: Demand, cell: string) => { const c = dm.byId.get(cell); return c ? dm.dongs[c.dong].gu.replace(/구$/, '') : ''; };
 
 let rid = 0, styleIdx = 0;
+// 개발 모드에서 화면이 두 번 만들어지면 예시 노선 번호·색이 밀려요(142, 5602…). 예시 노선을 만들기 전에 처음부터
+export function resetRouteIds() { rid = 0; styleIdx = 0; for (const k in serial) delete serial[k]; }
 export function makeRoute(dm: Demand, type: RouteType, stops: string[], buses: number, example = false): Route {
   const e = evalRoute(dm, stops, buses, type);
   const r: Route = { ...e, id: ++rid, num: routeNumber(dm, type, stops), type, ...routeStyle(styleIdx++), from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]), gus: gusOf(dm, stops), bus: [], example };

@@ -5,6 +5,7 @@ import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UN
 import { type Demand, stopable, snapped } from '../game/data';
 import { type Route, posAt, WALK, BUS_CAP } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
+import { addLandSprites } from './sprites';
 
 export type Layer = 'o' | 'd' | 'u';
 export type Flow = { from: [number, number]; to: [number, number]; v: number; out: boolean };
@@ -58,9 +59,9 @@ export class GameMap {
     this.dm = dm;
     if (!protocolAdded) { maplibregl.addProtocol('pmtiles', new Protocol().tile); protocolAdded = true; }
     const base = import.meta.env.BASE_URL;
-    const tiles = new URL(`${base}tiles/seoul.pmtiles`, location.href).href;
+    const tiles = new URL(`${base}tiles/seoul.pmtiles`, location.href).href, land = new URL(`${base}tiles/land.pmtiles`, location.href).href;
     this.map = new maplibregl.Map({
-      container: el, style: baseStyle(tiles), center: [126.99, 37.56], zoom: 10.2, minZoom: 9.3, maxZoom: 15.5,
+      container: el, style: baseStyle(tiles, land), center: [126.99, 37.56], zoom: 10.2, minZoom: 9.3, maxZoom: 15.5,
       maxBounds: [[126.6, 37.35], [127.35, 37.75]], attributionControl: { compact: true },
       localIdeographFontFamily: "'Gothic A1', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif",
       dragRotate: false, pitchWithRotate: false, touchPitch: false,
@@ -78,6 +79,11 @@ export class GameMap {
 
   private addLayers() {
     const m = this.map;
+    // 땅 쓰임 무늬: 직접 그린 작은 픽셀 나무·지붕을 흐리게 깔아요 (줌 11 아래는 안 보임)
+    addLandSprites(m);
+    m.addLayer({ id: 'land-pat', type: 'fill', source: 'land', 'source-layer': 'land', minzoom: 11,
+      paint: { 'fill-pattern': ['match', ['get', 'class'], 'forest', 'pat-forest', 'green', 'pat-green', 'res', 'pat-res', 'com', 'pat-com', 'pat-ind'],
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0, 12, 0.35, 14, 0.75] } }, 'river');
     // 헥사곤 (해상도별): 옅은 먹 외곽선 + 핑크 망점
     for (const res of HEX_RES) {
       const [minzoom, maxzoom] = ZRANGE[res];
@@ -116,6 +122,8 @@ export class GameMap {
     // 줌 13 아래에서는 노선마다 단순한 선 하나(lo), 위에서는 실제 도로 길(가는 길 + 오는 길)
     const dimOp = ['case', ['get', 'dim'], 0.3, 1];
     const op = ['step', ['zoom'], ['case', ['get', 'lo'], dimOp, 0], LO_Z, ['case', ['get', 'lo'], 0, dimOp]] as const;
+    // 바쁜 배경 위에서도 노선이 떠 보이게 흰 바깥 테두리
+    m.addLayer({ id: 'route-halo', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': 'rgba(255,255,255,0.85)', 'line-width': Wf(w => w + 9), 'line-opacity': op as never } });
     m.addLayer({ id: 'route-case', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': INK, 'line-width': Wf(w => w + 5), 'line-opacity': op as never } });
     m.addLayer({ id: 'route', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': W, 'line-opacity': op as never } });
     m.addLayer({ id: 'route-p1', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 1], paint: { 'line-color': PAPER, 'line-width': W, 'line-dasharray': [1.3, 1.3], 'line-opacity': op as never } });

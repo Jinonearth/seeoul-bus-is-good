@@ -6,7 +6,7 @@ import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH, SEED_CIRC } from './game/seeds';
-import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, makeRoute, updateRoute, setBusCount, evalRoute, routePath, routeStyle, WALK } from './game/model';
+import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, resetRouteIds, makeRoute, updateRoute, setBusCount, evalRoute, routePath, routeStyle, WALK } from './game/model';
 import { Game, fmt, fmtK, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
@@ -83,6 +83,7 @@ function GameView({ dm }: { dm: Demand }) {
     // 개발 모드(StrictMode)는 이 effect를 두 번 실행해요. 예시 노선이 두 벌 생기면 버스가 모자라 새 노선을 못 만들어요
     if (!game.routes.length) {
       // 예시 노선 3개(간선·지선·순환), 버스 40대 중 31대. 남은 9대로 바로 새 노선을 만들 수 있어요
+      resetRouteIds();
       game.routes.push(makeRoute(dm, 'trunk', SEED_TRUNK.filter(stopable), 16, true));
       game.routes.push(makeRoute(dm, 'branch', SEED_BRANCH.filter(stopable), 7, true));
       game.routes.push(makeRoute(dm, 'circ', SEED_CIRC.filter(stopable), 8, true));
