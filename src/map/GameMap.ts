@@ -13,6 +13,8 @@ const HEX_RES = [7, 8, 9] as const;
 export const resForZoom = (z: number) => (z < 12 ? 7 : z < 13.5 ? 8 : 9);
 const ZRANGE: Record<number, [number, number]> = { 7: [0, 12], 8: [12, 13.5], 9: [13.5, 24] };
 const DOT = [0, 0.16, 0.32, 0.48, 0.64, 0.8];
+// 탄 사람 채움 색 (Okabe-Ito): ¼·½ 초록 여유, ¾ 노랑 붐빔, 꽉 빨강 만원. 길이도 함께 늘어서 색 없이도 읽혀요
+const LOAD_COLOR = ['', '#009E73', '#009E73', '#F0E442', '#D55E00'];
 const LO_Z = 13, LO_TOL_M = 300;   // 이 줌 아래에선 노선을 단순한 선 하나로 (Douglas-Peucker 허용 거리)
 const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540;
 const mDist = (a: [number, number], b: [number, number]) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY) / 1000;
@@ -130,9 +132,9 @@ export class GameMap {
     // 버스: 줌아웃 = 흰 네모, 줌인 = 번호판. 둘 다 탄 사람만큼 먹색이 차올라요. 만차로 사람을 남기면 경고 삼각형
     this.addSquare(); this.addWarn();
     m.addSource('buses', { type: 'geojson', data: fc() });
-    m.addLayer({ id: 'bus-sq', type: 'symbol', source: 'buses', maxzoom: 12.5, layout: { 'icon-image': ['concat', 'bus-sq-', ['get', 'lv']], 'icon-allow-overlap': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.7, 12, 1] }, paint: { 'icon-opacity': ['case', ['get', 'dim'], 0.3, 1] } });
-    m.addLayer({ id: 'bus-plate', type: 'symbol', source: 'buses', minzoom: 12.5, layout: { 'icon-image': ['concat', 'plate-', ['get', 'rid'], '-', ['get', 'lv']], 'icon-allow-overlap': true }, paint: { 'icon-opacity': ['case', ['get', 'dim'], 0.3, 1] } });
-    m.addLayer({ id: 'bus-warn', type: 'symbol', source: 'buses', filter: ['>', ['get', 'crowd'], 1], layout: { 'icon-image': 'warn', 'icon-allow-overlap': true, 'icon-offset': [16, -10], 'icon-size': ['step', ['zoom'], 0.75, 12.5, 1] } });
+    m.addLayer({ id: 'bus-sq', type: 'symbol', source: 'buses', maxzoom: 12.5, layout: { 'icon-image': ['concat', 'bus-sq-', ['get', 'lv']], 'icon-allow-overlap': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.7, 12, 1] }, paint: { 'icon-opacity': ['*', ['case', ['get', 'dim'], 0.3, 1], ['get', 'a']] } });
+    m.addLayer({ id: 'bus-plate', type: 'symbol', source: 'buses', minzoom: 12.5, layout: { 'icon-image': ['concat', 'plate-', ['get', 'rid'], '-', ['get', 'lv']], 'icon-allow-overlap': true }, paint: { 'icon-opacity': ['*', ['case', ['get', 'dim'], 0.3, 1], ['get', 'a']] } });
+    m.addLayer({ id: 'bus-warn', type: 'symbol', source: 'buses', filter: ['all', ['>', ['get', 'crowd'], 1], ['!', ['get', 'ret']]], layout: { 'icon-image': 'warn', 'icon-allow-overlap': true, 'icon-offset': [16, -10], 'icon-size': ['step', ['zoom'], 0.75, 12.5, 1] } });
     // 노선 번호 배지: 줌아웃에서만(줌인하면 버스 번호판이 대신), 버스보다 위
     m.addLayer({ id: 'route-badge', type: 'symbol', source: 'routes', maxzoom: 12.5, filter: ['get', 'lo'],
       layout: { 'symbol-placement': 'line', 'symbol-spacing': 260, 'text-field': ['get', 'num'], 'text-font': ['Open Sans Semibold'], 'text-size': 12, 'text-rotation-alignment': 'viewport', 'text-keep-upright': true },
@@ -140,12 +142,12 @@ export class GameMap {
     for (const l of labelLayers) m.addLayer(l as never);
   }
 
-  // 줌아웃 버스: 흰 네모 안에 탄 사람만큼 먹색이 아래에서 차올라요 (0, ¼, ½, ¾, 꽉)
+  // 줌아웃 버스: 흰 네모 안에 탄 사람만큼 왼쪽에서 차요 (0, ¼, ½, ¾, 꽉, 색은 LOAD_COLOR)
   private addSquare() {
     for (let lv = 0; lv <= 4; lv++) {
       const c = document.createElement('canvas'); c.width = c.height = 12; const g = c.getContext('2d')!;
       g.fillStyle = '#FFFFFF'; g.fillRect(1, 1, 10, 10);
-      const h = Math.round(10 * lv / 4); g.fillStyle = INK; g.fillRect(1, 11 - h, 10, h);
+      const fw = Math.round(10 * lv / 4); g.fillStyle = LOAD_COLOR[lv]; g.fillRect(1, 1, fw, 10);
       g.strokeStyle = INK; g.lineWidth = 2; g.strokeRect(1, 1, 10, 10);
       this.map.addImage(`bus-sq-${lv}`, g.getImageData(0, 0, 12, 12));
     }
@@ -156,7 +158,7 @@ export class GameMap {
     g.fillStyle = '#FFF'; g.font = '800 10px sans-serif'; g.textAlign = 'center'; g.fillText('!', 10, 15);
     this.map.addImage('warn', g.getImageData(0, 0, 20, 20));
   }
-  // 줌인 버스 번호판: 흰 바탕 + 왼쪽 노선색 띠 + 번호. 탄 사람만큼 먹색이 아래에서 차오르고(0, ¼, ½, ¾, 꽉), 먹색 위 글자는 흰색
+  // 줌인 버스 번호판: 흰 바탕 + 왼쪽 노선색 띠 + 번호. 탄 사람만큼 왼쪽에서 차고(0, ¼, ½, ¾, 꽉, 초록·노랑·빨강), 채움 위 글자는 흰색(노랑 위는 먹색)
   private plate(r: Route) {
     const k = `${r.id}:${r.num}:${r.color}`;
     if (this.plates.has(k)) return;
@@ -165,13 +167,13 @@ export class GameMap {
       g.font = '800 12px "Gothic A1", sans-serif'; const w = Math.ceil(g.measureText(r.num).width + 18), h = 20;
       c.width = w * dpr; c.height = h * dpr; g.scale(dpr, dpr);
       g.fillStyle = '#FFFFFF'; g.fillRect(1, 1, w - 2, h - 2);
-      const fh = (h - 2) * lv / 4; g.fillStyle = INK; g.fillRect(1, h - 1 - fh, w - 2, fh);
+      const fw = (w - 7) * lv / 4; g.fillStyle = LOAD_COLOR[lv]; g.fillRect(6, 1, fw, h - 2);
       g.fillStyle = r.color; g.fillRect(1, 1, 5, h - 2);
       g.strokeStyle = INK; g.lineWidth = 2; g.strokeRect(1, 1, w - 2, h - 2);
       // 번호: 흰 바탕 부분은 먹색, 먹색이 찬 부분은 흰색 (글자가 경계에 걸려도 읽히게)
       g.font = '800 12px "Gothic A1", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillStyle = INK; g.fillText(r.num, w / 2 + 2.5, h / 2 + 0.5);
-      if (fh > 0) { g.save(); g.beginPath(); g.rect(6, h - 1 - fh, w - 7, fh); g.clip(); g.fillStyle = '#FFFFFF'; g.fillText(r.num, w / 2 + 2.5, h / 2 + 0.5); g.restore(); }
+      if (fw > 0) { g.save(); g.beginPath(); g.rect(6, 1, fw, h - 2); g.clip(); g.fillStyle = lv === 3 ? INK : '#FFFFFF'; g.fillText(r.num, w / 2 + 2.5, h / 2 + 0.5); g.restore(); }
       if (this.map.hasImage(id)) this.map.removeImage(id);
       this.map.addImage(id, g.getImageData(0, 0, c.width, c.height), { pixelRatio: dpr });
     }
@@ -314,7 +316,7 @@ export class GameMap {
     const f: GeoJSON.Feature[] = [], lo = this.map.getZoom() < LO_Z;
     for (const r of routes) {
       const dim = focus != null && focus !== r.id; void bin;
-      for (const b of r.bus) f.push({ type: 'Feature', properties: { rid: r.id, lv: Math.min(4, Math.round(b.on / BUS_CAP * 4)), crowd: b.full ? 2 : b.on / BUS_CAP, dim }, geometry: { type: 'Point', coordinates: lo ? this.loAt(r, b.s) : posAt(r, b.s) } });
+      for (const b of r.bus) f.push({ type: 'Feature', properties: { rid: r.id, lv: Math.min(4, Math.round(b.on / BUS_CAP * 4)), crowd: b.full ? 2 : b.on / BUS_CAP, dim, a: (b.a ?? 1) * (b.retire ? 0.55 : 1), ret: !!b.retire }, geometry: { type: 'Point', coordinates: lo ? this.loAt(r, b.s) : posAt(r, b.s) } });
     }
     (this.map.getSource('buses') as GeoJSONSource).setData(fc(f));
   }

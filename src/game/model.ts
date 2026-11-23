@@ -51,7 +51,11 @@ export type Eval = {
   pair: Float64Array;   // [시간대][출발 정류장][도착 정류장] 이 노선이 실어 나를 하루 통행 (evalRoute 예상)
 };
 // 버스: 고리 위 위치 s, 다음에 설 자리 k, 정차 남은 시간, 탄 사람(내릴 자리별 명수), 만차로 사람을 남겼는지
-export type Bus = { s: number; k: number; wait: number; load: Int32Array; on: number; full: boolean; pax: number; hold: number };   // hold: 앞차와 너무 붙어서 정류장에서 더 기다릴 시간(분)
+export type Bus = { s: number; k: number; wait: number; load: Int32Array; on: number; full: boolean; pax: number; hold: number;
+  retire?: boolean;   // 빼는 중: 새로 태우지 않고 다음 정류장에서 다 내린 뒤 사라져요
+  gone?: boolean;     // 다 내렸어요, 흐려지며 사라지는 중
+  a?: number;         // 보이는 정도 0~1 (나타나고 사라질 때)
+};   // hold: 앞차와 너무 붙어서 정류장에서 더 기다릴 시간(분)
 export type Route = Eval & {
   id: number; num: string; type: RouteType; color: string; tx: string; pattern: number;
   from: string; to: string; gus: string[]; bus: Bus[]; example?: boolean;   // gus: 지나는 구 (순서대로, 중복 없이)
@@ -200,6 +204,27 @@ export function makeRoute(dm: Demand, type: RouteType, stops: string[], buses: n
   const e = evalRoute(dm, stops, buses, type);
   const r: Route = { ...e, id: ++rid, num: routeNumber(dm, type, stops), type, ...routeStyle(styleIdx++), from: guName(dm, stops[0]), to: guName(dm, stops[stops.length - 1]), gus: gusOf(dm, stops), bus: [], example };
   resetBuses(r); return r;
+}
+// 버스 대수만 바꾸기: 다른 버스는 그대로 두고, 빼는 버스는 손님이 가장 적은 차를 골라 다음 정류장에서 다 내린 뒤 사라지게,
+// 더하는 버스는 가장 넓은 간격 한가운데에 나타나게
+export const activeBuses = (r: Route) => r.bus.filter(b => !b.retire);
+export function setBusCount(dm: Demand, r: Route, n: number) {
+  n = Math.max(1, n);
+  const { claim } = r;
+  Object.assign(r, evalRoute(dm, r.stops, n, r.type));
+  r.claim = claim;
+  let act = activeBuses(r);
+  while (act.length > n) { const b = act.reduce((a, x) => (x.on < a.on ? x : a)); b.retire = true; act = activeBuses(r); }
+  while (act.length < n) {
+    const back = r.bus.find(b => b.retire && !b.gone);
+    if (back) { back.retire = false; act = activeBuses(r); continue; }
+    const L = 2 * r.lenKm, S = act.map(b => b.s).sort((a, b) => a - b);
+    let at = 0;
+    if (S.length) { let best = -1; S.forEach((x, i) => { const g = ((S[(i + 1) % S.length] - x) % L + L) % L || L; if (g > best) { best = g; at = (x + g / 2) % L; } }); }
+    let k = r.visits.findIndex(q => q.s >= at); if (k < 0) k = 0;
+    r.bus.push({ s: at, k, wait: 0, load: new Int32Array(r.visits.length), on: 0, full: false, pax: 0, hold: 0, a: 0 });
+    act = activeBuses(r);
+  }
 }
 export function updateRoute(dm: Demand, r: Route, stops: string[], buses: number) {
   r.claim = undefined;

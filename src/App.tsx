@@ -6,7 +6,7 @@ import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH, SEED_CIRC } from './game/seeds';
-import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, makeRoute, updateRoute, evalRoute, routePath, routeStyle, WALK } from './game/model';
+import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, makeRoute, updateRoute, setBusCount, evalRoute, routePath, routeStyle, WALK } from './game/model';
 import { Game, fmt, fmtK, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
@@ -112,7 +112,7 @@ function GameView({ dm }: { dm: Demand }) {
     let last = performance.now(), acc = 0, lastBin = game.bin, raf = 0;
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      game.advance(dt * game.speed);
+      game.advance(dt * game.speed); game.fade(dt);
       const m = gm.current;
       if (m?.isReady) {
         m.setBuses(game.routes, game.bin, selRef.current?.kind === 'route' ? selRef.current.id : null);
@@ -285,7 +285,7 @@ function GameView({ dm }: { dm: Demand }) {
           <div className="ends"><span>적음</span><span>많음</span></div></div>
         <dl className="icons">
           <dt><Icon n="out" /></dt><dd>점 = 최근 1시간 동안 버스를 기다린 사람, 30분마다 새로 생기고 1시간 지나면 다른 교통수단으로 떠나요 (버스가 태워 가면 작아져요)</dd><dt><Icon n="in" /></dt><dd>도착 수요</dd><dt><Icon n="gap" /></dt><dd>못 탄 채 기다리는 사람 (버스가 안 닿거나 모자란 곳)</dd>
-          <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="14" height="14" fill="#fff" stroke="#1D1D1B" strokeWidth="2" /><rect x="2" y="8" width="12" height="6" fill="#1D1D1B" /></svg></dt><dd>버스 안 검은색 = 탄 사람, 꽉 차면 만원</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
+          <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="14" height="14" fill="#fff" stroke="#1D1D1B" strokeWidth="2" /><rect x="2" y="2" width="4" height="12" fill="#009E73" /><rect x="6" y="2" width="4" height="12" fill="#F0E442" /><rect x="10" y="2" width="4" height="12" fill="#D55E00" /></svg></dt><dd>버스 채움 = 탄 사람 (초록 여유 · 노랑 붐빔 · 빨강 만원)</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
           <dt><Icon n="clock" /></dt><dd>배차간격 (′ = 분)</dd><dt><Icon n="loop" /></dt><dd>한 바퀴 시간 (가는 길 + 오는 길)</dd><dt><Icon n="ruler" /></dt><dd>노선 길이 (편도 = 한 바퀴의 절반)</dd><dt><Icon n="cap" /></dt><dd>시간당 정원</dd>
           <dt><Icon n="up" /><Icon n="down" /></dt><dd>목표 페이스 넘김/부족</dd><dt><span className="streak"><i className="on" /><i /><i /></span></dt><dd>연속 미달 (3칸이면 게임 오버)</dd>
           <dt><Icon n="trunk" /><Icon n="branch" /><Icon n="circ" /></dt><dd>간선 · 지선 · 순환</dd>
@@ -369,7 +369,7 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClo
   const free = game.fleet - game.usedBuses(r), demand = r.demand.reduce((a, b) => a + b, 0), carried = r.carried.reduce((a, b) => a + b, 0);
   const crowd = r.bus.length ? r.bus.reduce((a, b) => a + b.on, 0) / r.bus.length / BUS_CAP : 0;   // 지금 버스들 평균 탑승률
   const full = r.bus.some(b => b.full);
-  const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); updateRoute(dm, r, r.stops, n); onChange(); };
+  const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); setBusCount(dm, r, n); onChange(); };
   return <>
     <span className={`pstrip p${r.pattern}`} style={{ '--rc': r.color } as React.CSSProperties} aria-hidden="true" />
     <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{routeName(r)}</b><Icon n={r.type} s={14} label={TYPES[r.type]} className="mut" />

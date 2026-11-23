@@ -40,7 +40,9 @@ export class Game {
   get day() { return Math.floor((this.min - RULES.settleMin) / 1440) + 1; }
   get minuteOfDay() { return this.min % 1440; }
   get bin() { return binOf(this.dm, this.minuteOfDay); }
-  usedBuses(except?: Route) { return this.routes.reduce((a, r) => a + (r === except ? 0 : r.buses), 0); }
+  usedBuses(except?: Route) { return this.routes.reduce((a, r) => a + (r === except ? 0 : r.buses), 0); }   // 빼는 중인 버스는 이미 빈 차로 쳐요
+  // 나타나고 사라지기 (현실 시간 dt초): 다 내린 버스는 1초에 걸쳐 흐려져 없어지고, 새 버스는 1초에 걸쳐 나타나요
+  fade(dt: number) { for (const r of this.routes) { for (const b of r.bus) { if (b.gone) b.a = (b.a ?? 1) - dt; else if ((b.a ?? 1) < 1) b.a = Math.min(1, (b.a ?? 0) + dt); } r.bus = r.bus.filter(b => !(b.gone && (b.a ?? 0) <= 0)); } }
   get freeBuses() { return this.fleet - this.usedBuses(); }
 
   // 05시부터 지금까지 하루 수요 중 지나간 비율 (목표 페이스 표시용)
@@ -60,7 +62,7 @@ export class Game {
     if (this.over || gm <= 0) return;
     const before = this.min; this.min += gm;
     this.stepCohorts(before);
-    for (const r of this.routes) { this.spacing(r); for (const b of r.bus) moveBus(r, b, gm, this.serve); }
+    for (const r of this.routes) { this.spacing(r); for (const b of r.bus) if (!b.gone) moveBus(r, b, gm, this.serve); }
     const S = RULES.settleMin;
     if (Math.floor((this.min - S) / 1440) > Math.floor((before - S) / 1440)) this.settle();
   }
@@ -121,7 +123,7 @@ export class Game {
   // 정류장에서 그 차이의 절반만큼(최대 HOLD_MAX분) 더 기다려요
   private gapAhead = new Map<Bus, number>(); private gapBehind = new Map<Bus, number>();
   private spacing(r: Route) {
-    const L = 2 * r.lenKm, B = [...r.bus].sort((a, b) => a.s - b.s), n = B.length;
+    const L = 2 * r.lenKm, B = r.bus.filter(b => !b.retire).sort((a, b) => a.s - b.s), n = B.length;
     if (n < 2 || L <= 0) return;
     B.forEach((b, i) => { this.gapAhead.set(b, ((B[(i + 1) % n].s - b.s) % L + L) % L); this.gapBehind.set(b, ((b.s - B[(i - 1 + n) % n].s) % L + L) % L); });
   }
@@ -150,6 +152,7 @@ export class Game {
   // 탈 사람 = min(⌊min(이 자리 손님, 걸어오는 셀에 실제로 기다리는 사람)⌋, 75 − 탄 사람). 다른 노선이 같은 셀에서 먼저 태워 가면 줄어요.
   // 내릴 곳은 pair 비율대로(큰 나머지 순). 손님과 셀의 기다리는 사람에서 오래된 무리부터 빼요. 못 탄 사람은 1시간 지나면 떠나요(놓침).
   private serve = (r: Route, b: Bus, k: number) => {
+    if (b.retire) { const off = b.on; b.load.fill(0); b.on = 0; b.full = false; b.gone = true; return off; }   // 빼는 버스: 다 내리고 끝
     const off = b.load[k]; b.load[k] = 0; b.on -= off; b.hold = this.holdFor(b);
     if (!r.claim || r.claim.old.length !== r.visits.length) r.claim = { old: this.claimOf(r, this.old, this.bin), young: this.claimOf(r, this.young, this.bin) };
     const n = r.stops.length, i = r.visits[k].i, bin = this.bin, c = r.catch[i], cl = r.claim;
