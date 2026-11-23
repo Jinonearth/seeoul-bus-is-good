@@ -7,7 +7,7 @@ import { type Demand, loadDemand, binHours, stopable, snapped } from './game/dat
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH, SEED_CIRC } from './game/seeds';
 import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, makeRoute, updateRoute, evalRoute, routePath, routeStyle, WALK } from './game/model';
-import { Game, fmt, type Settle } from './game/state';
+import { Game, fmt, fmtK, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
 import { Icon } from './ui/Icon';
@@ -79,7 +79,7 @@ function GameView({ dm }: { dm: Demand }) {
   // 지도 만들기 + 예시 노선 2개
   useEffect(() => {
     const m = new GameMap(mapEl.current!, dm); gm.current = m;
-    game.onSettle = (x: Settle) => toast({ kind: x.ok ? 'good' : 'warn', text: <>D{x.day} <Icon n={x.ok ? 'ok' : 'x'} s={14} /> <Icon n="person" s={14} />{fmt(x.got)}/{fmt(x.target)}{!x.ok && <> <Icon n="warn" s={14} />{x.miss}/{RULES.maxMiss}</>}{x.ok && x.hit > 0 && <> <Icon n="up" s={14} />{x.hit}/{RULES.bonusDays}</>}{x.grow > 0 && <> <Icon n="bus" s={14} />+{x.grow}</>}</> }); game.onOver = rerender;
+    game.onSettle = (x: Settle) => toast({ kind: x.ok ? 'good' : 'warn', text: <>D{x.day} <Icon n={x.ok ? 'ok' : 'x'} s={14} /> <Icon n="person" s={14} />{fmtK(x.got)}/{fmtK(x.target)}{!x.ok && <> <Icon n="warn" s={14} />{x.miss}/{RULES.maxMiss}</>}{x.ok && x.hit > 0 && <> <Icon n="up" s={14} />{x.hit}/{RULES.bonusDays}</>}{x.grow > 0 && <> <Icon n="bus" s={14} />+{x.grow}</>}</> }); game.onOver = rerender;
     // 개발 모드(StrictMode)는 이 effect를 두 번 실행해요. 예시 노선이 두 벌 생기면 버스가 모자라 새 노선을 못 만들어요
     if (!game.routes.length) {
       // 예시 노선 3개(간선·지선·순환), 버스 40대 중 31대. 남은 9대로 바로 새 노선을 만들 수 있어요
@@ -220,7 +220,7 @@ function GameView({ dm }: { dm: Demand }) {
       {/* 위: 회사 상태 (수송·목표, 페이스, 연속 미달, 버스). 누르면 회사 현황 */}
       <header className="box" id="topbar">
         <div className="r2" onClick={() => setStats(x => !x)}>
-          <span className="got" aria-label={`오늘 수송 ${fmt(got)}명, 목표 ${fmt(t)}명`}><Icon n="person" s={14} /><b>{fmt(got)}</b><span className="muted">/{fmt(t)}</span></span>
+          <span className="got" aria-label={`오늘 수송 ${fmt(got)}명, 목표 ${fmt(t)}명`}><Icon n="person" s={14} /><b>{fmtK(got)}</b><span className="muted">/{fmtK(t)}</span></span>
             <span className="satw">
               <span className="meter goal" aria-hidden="true"><i style={{ width: `${Math.min(100, got / full * 100)}%` }} /><u style={{ left: `${Math.min(100, share / RULES.bonus * 100)}%` }} /><s /></span>
               {got >= t * share ? <b className="pace ok"><Icon n="up" s={14} label="목표 페이스 넘김" /></b> : <b className="pace bad"><Icon n="down" s={14} label="목표 페이스 부족" /></b>}
@@ -285,7 +285,7 @@ function GameView({ dm }: { dm: Demand }) {
           <div className="ends"><span>적음</span><span>많음</span></div></div>
         <dl className="icons">
           <dt><Icon n="out" /></dt><dd>점 = 최근 1시간 동안 버스를 기다린 사람, 30분마다 새로 생기고 1시간 지나면 다른 교통수단으로 떠나요 (버스가 태워 가면 작아져요)</dd><dt><Icon n="in" /></dt><dd>도착 수요</dd><dt><Icon n="gap" /></dt><dd>못 탄 채 기다리는 사람 (버스가 안 닿거나 모자란 곳)</dd>
-          <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
+          <dt><Icon n="bus" /></dt><dd>버스 (운행/보유)</dd><dt><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="14" height="14" fill="#fff" stroke="#1D1D1B" strokeWidth="2" /><rect x="2" y="8" width="12" height="6" fill="#1D1D1B" /></svg></dt><dd>버스 안 검은색 = 탄 사람, 꽉 차면 만원</dd><dt><Icon n="person" /></dt><dd>수송 인원 (오늘/목표)</dd><dt><Icon n="miss" /></dt><dd>못 태운 승객</dd>
           <dt><Icon n="clock" /></dt><dd>배차간격 (′ = 분)</dd><dt><Icon n="loop" /></dt><dd>한 바퀴 시간 (가는 길 + 오는 길)</dd><dt><Icon n="ruler" /></dt><dd>노선 길이 (편도 = 한 바퀴의 절반)</dd><dt><Icon n="cap" /></dt><dd>시간당 정원</dd>
           <dt><Icon n="up" /><Icon n="down" /></dt><dd>목표 페이스 넘김/부족</dd><dt><span className="streak"><i className="on" /><i /><i /></span></dt><dd>연속 미달 (3칸이면 게임 오버)</dd>
           <dt><Icon n="trunk" /><Icon n="branch" /><Icon n="circ" /></dt><dd>간선 · 지선 · 순환</dd>
@@ -353,10 +353,13 @@ function HexPanel({ dm, cell, bin, onStart, onClose, more, setMore }: { dm: Dema
 const MoreBtn = ({ more, setMore }: { more: boolean; setMore: (v: boolean) => void }) =>
   <button className="pb" aria-expanded={more} aria-label={more ? '자세히 접기' : '자세히'} onClick={() => setMore(!more)}><svg className="chev" viewBox="0 0 16 16"><path d={more ? 'M3 10l5-5 5 5' : 'M3 6l5 5 5-5'} /></svg></button>;
 
+// 버스 대수: 숫자 뒤에 [−|+] 한 덩어리 (보이는 칸 22px, 누르는 범위 40px)
+const PM = ({ dec, inc, onDec, onInc }: { dec: boolean; inc: boolean; onDec: () => void; onInc: () => void }) =>
+  <span className="pm" role="group" aria-label="버스 대수"><button aria-label="버스 빼기" disabled={dec} onClick={onDec}><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5h6" /></svg></button><button aria-label="버스 더 넣기" disabled={inc} onClick={onInc}><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5h6M5 2v6" /></svg></button></span>;
+
 function Stepper({ n, min, max, onSet, free }: { n: number; min: number; max: number; onSet: (n: number) => void; free: number }) {
-  return <div className="hw"><button aria-label="버스 빼기" disabled={n <= min} onClick={() => onSet(n - 1)}>−</button>
-    <b aria-label={`투입 버스 ${n}대`}><Icon n="bus" s={18} />{n}</b>
-    <button aria-label="버스 더 넣기" disabled={n >= max} onClick={() => onSet(n + 1)}>+</button>
+  return <div className="hw"><b aria-label={`투입 버스 ${n}대`}><Icon n="bus" s={18} />{n}</b>
+    <PM dec={n <= min} inc={n >= max} onDec={() => onSet(n - 1)} onInc={() => onSet(n + 1)} />
     <span className="need" aria-label={`남은 버스 ${free}대`}><Icon n="bus" s={13} />{free}</span></div>;
 }
 
@@ -372,9 +375,9 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClo
     <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{routeName(r)}</b><Icon n={r.type} s={14} label={TYPES[r.type]} className="mut" />
       <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={14} /></button></div>
     <div className="pg">
-      <span><Icon n="bus" s={14} /><button className="pstep" aria-label="버스 빼기" disabled={r.buses <= 1} onClick={() => setN(r.buses - 1)}>−</button><b aria-label={`투입 버스 ${r.buses}대`}>{r.buses}</b><button className="pstep" aria-label="버스 더 넣기" disabled={r.buses >= free} onClick={() => setN(r.buses + 1)}>+</button></span>
+      <span><Icon n="bus" s={14} /><b aria-label={`투입 버스 ${r.buses}대`}>{r.buses}</b><PM dec={r.buses <= 1} inc={r.buses >= free} onDec={() => setN(r.buses - 1)} onInc={() => setN(r.buses + 1)} /></span>
       <span aria-label="배차간격"><Icon n="clock" s={14} /><b>{fmtHw(r.headway)}′</b></span>
-      <span aria-label="오늘 탄 사람"><Icon n="person" s={14} /><b>{fmt(r.today ?? 0)}</b></span>
+      <span aria-label="오늘 탄 사람"><Icon n="person" s={14} /><b>{fmtK(r.today ?? 0)}</b></span>
       <span className={full ? 'bad' : ''} aria-label={`지금 버스 평균 탑승률 ${Math.round(crowd * 100)}%${full ? ', 만차로 못 탄 사람 있음' : ''}`}><i className="pmeter"><i style={{ width: `${Math.min(100, crowd * 100)}%` }} /></i><b>{Math.round(crowd * 100)}%</b>{full && <Icon n="warn" s={14} />}</span>
       {more && <>
         <span aria-label="한 바퀴"><Icon n="loop" s={14} /><b>{Math.round(r.cyc)}′</b></span>
@@ -445,7 +448,7 @@ function DraftPanel({ game, draft, ev, setDraft, onCancel, onDone }: { dm: Deman
 
 function CompanyPanel({ game }: { game: Game }) {
   return <>
-    <div className="quick"><Stat i="flag" v={fmt(game.target)} label={`하루 목표 (버스 ${game.goalFleet}대 × ${RULES.perBus})`} /><Stat i="person" v={fmt(game.todayRiders)} label="오늘 수송" /><Stat i="miss" v={fmt(game.todayMissed)} label="오늘 놓침" /></div>
+    <div className="quick"><Stat i="flag" v={fmtK(game.target)} label={`하루 목표 (버스 ${game.goalFleet}대 × ${RULES.perBus})`} /><Stat i="person" v={fmtK(game.todayRiders)} label="오늘 수송" /><Stat i="miss" v={fmtK(game.todayMissed)} label="오늘 놓침" /></div>
     <div className="quick"><Stat i="route" v={game.routes.length} label="노선 수" /><Stat i="up" v={`${game.hit}/${RULES.bonusDays}`} label="목표 150% 연속 달성 일수" /><Stat i="warn" v={`${game.miss}/${RULES.maxMiss}`} label="연속 미달 일수" warn={game.miss > 0} /></div>
     <div className="quick"><Stat i={`b${game.bin}`} v={`${hh(game.dm.bins[game.bin].from)}–${hh(game.dm.bins[game.bin].to)}`} label={`지금 시간대: ${game.dm.bins[game.bin].name}`} /></div>
   </>;

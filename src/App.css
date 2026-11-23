@@ -309,3 +309,32 @@ dl.icons dd{margin:0}
 .popup .pacts .danger.armed .ic{color:#fff}
 .popup .pbody > .pg:last-child{margin-bottom:6px}
 .popup .pg > span:nth-last-child(-n+2){border-bottom:0}
+
+/* 버스 대수 −/+ : 보이는 크기 22px, 누르는 범위 40px */
+.popup .pstep{width:22px;height:22px;border-width:1.5px;font-size:14px;line-height:1}
+.popup .pstep::after{inset:-9px -4px}
+.popup .pg > span:first-child{gap:3px}
+.popup .pg > span:first-child .ic{margin-right:2px}
+.popup .pg > span:first-child b{min-width:20px}
+#bottom .hw button{width:32px;height:32px;font-size:16px;position:relative}
+#bottom .hw button::after{content:'';position:absolute;inset:-6px}
+#bottom .hw > b{min-width:52px}
+
+/* [−|+] 한 덩어리: 1.5px 먹 테두리, 가운데 1px 줄, 칸마다 22px. 투명 ::after로 누르는 범위 40px */
+.pm{display:inline-flex;border:1.5px solid var(--ink);background:#fff;flex:none;margin-left:4px}
+.pm button{width:22px;height:22px;border:0;background:transparent;font-size:14px;font-weight:800;line-height:1;padding:0;cursor:pointer;position:relative;display:grid;place-items:center;color:var(--ink)}
+.pm button+button{border-left:1px solid var(--ink)}
+.pm button::after{content:'';position:absolute;top:-9px;bottom:-9px;left:-4px;right:-4px}
+.pm button:disabled{color:#BDB8AA;cursor:default}
+#bottom .hw .pm button{width:30px;height:30px;font-size:16px}
+#bottom .hw .pm button::after{top:-6px;bottom:-6px;left:-2px;right:-2px}
+
+/* [−|+]: 숫자 높이(16px)에 맞춘 작은 상자, 기호는 SVG 선이라 칸 가운데에 딱 */
+.pm{height:16px;align-self:center;box-sizing:content-box}
+.pm button{width:17px;height:16px;display:grid;place-items:center}
+.pm svg{width:10px;height:10px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:square}
+.pm button::after{top:-12px;bottom:-12px;left:-6px;right:-6px}
+#bottom .hw .pm{height:22px}
+#bottom .hw .pm button{width:24px;height:22px}
+#bottom .hw .pm svg{width:12px;height:12px}
+#bottom .hw .pm button::after{top:-10px;bottom:-10px;left:-4px;right:-4px}

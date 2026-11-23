@@ -182,3 +182,5 @@ export class Game {
 }
 
 export const fmt = (n: number) => Math.round(n).toLocaleString('ko-KR');
+// 큰 사람 수는 K로: 1,000 아래는 그대로, 100K 아래는 소수 한 자리(.0은 빼고), 그 위는 정수 K
+export const fmtK = (n: number) => { const r = Math.round(n); if (Math.abs(r) < 1000) return String(r); const k = r / 1000; return `${Math.abs(k) < 100 ? (Math.round(k * 10) / 10).toString() : Math.round(k)}K`; };
