@@ -2,7 +2,7 @@
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
-import { type Demand, stopable } from '../game/data';
+import { type Demand, stopable, snapped } from '../game/data';
 import { type Route, posAt, WALK, BUS_CAP } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
 
@@ -52,7 +52,7 @@ export class GameMap {
   isReady = false;   // 레이어 준비됨 (map.loaded()는 타일 읽는 동안 false)
   private dm: Demand;
   private plates = new Set<string>();
-  onTap: (e: { lngLat: [number, number]; route?: number }) => void = () => {};
+  onTap: (e: { lngLat: [number, number]; route?: number; stop?: string }) => void = () => {};
 
   constructor(el: HTMLElement, dm: Demand) {
     this.dm = dm;
@@ -71,7 +71,8 @@ export class GameMap {
     this.map.on('click', e => {
       const pad = matchMedia('(pointer: coarse)').matches ? 22 : 8;
       const hit = this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['route-hit'] });
-      this.onTap({ lngLat: [e.lngLat.lng, e.lngLat.lat], route: hit[0]?.properties?.id as number | undefined });
+      const st = this.map.getLayer('stops-hi') ? this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['stops-hi'] }) : [];
+      this.onTap({ lngLat: [e.lngLat.lng, e.lngLat.lat], route: hit[0]?.properties?.id as number | undefined, stop: st[0]?.properties?.cell as string | undefined });
     });
   }
 
@@ -122,7 +123,10 @@ export class GameMap {
     m.addLayer({ id: 'route-p3', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 3], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#FFFFFF', 'line-width': Wf(w => w * 0.45), 'line-dasharray': [0.1, 2.2], 'line-opacity': op as never } });
     m.addLayer({ id: 'route-hit', type: 'line', source: 'routes', filter: ['!', ['get', 'lo']], paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
     m.addSource('stops', { type: 'geojson', data: fc() });
-    m.addLayer({ id: 'stops', type: 'circle', source: 'stops', minzoom: 12,
+    // 줌인 정류장: 셀마다 하나. 노선 하나 = 흰 동그라미, 둘 이상 = 환승 알약(노선색 점)
+    m.addSource('stops-hi', { type: 'geojson', data: fc() });
+    m.addLayer({ id: 'stops-hi', type: 'symbol', source: 'stops-hi', minzoom: LO_Z, layout: { 'icon-image': ['get', 'img'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 15, 0.75] }, paint: { 'icon-opacity': ['case', ['get', 'dim'], 0.35, 1] } });
+    m.addLayer({ id: 'stops', type: 'circle', source: 'stops', minzoom: 12, maxzoom: LO_Z, filter: ['get', 'lo'],
       paint: { 'circle-color': '#FFFFFF', 'circle-stroke-color': INK, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3.5, 14, 6], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 3], 'circle-opacity': op as never, 'circle-stroke-opacity': op as never } });
     // 그리는 중인 노선
     m.addSource('draft', { type: 'geojson', data: fc() });
@@ -284,7 +288,7 @@ export class GameMap {
   }
 
   setRoutes(routes: Route[], focus: number | null) {
-    const lines: GeoJSON.Feature[] = [], stops: GeoJSON.Feature[] = [];
+    const lines: GeoJSON.Feature[] = [], stops: GeoJSON.Feature[] = [], cells = new Map<string, { colors: string[]; dim: boolean }>();
     this.lo.clear();
     for (const r of routes) {
       this.plate(r);
@@ -292,11 +296,36 @@ export class GameMap {
       lines.push({ type: 'Feature', properties: { ...props, lo: false }, geometry: { type: 'LineString', coordinates: r.path } });
       const v = this.loOf(r);
       if (v.line.length > 1) lines.push({ type: 'Feature', properties: { ...props, lo: true }, geometry: { type: 'LineString', coordinates: v.line } });
-      for (const p of r.stopPts) stops.push({ type: 'Feature', properties: { dim, lo: false }, geometry: { type: 'Point', coordinates: p } });
+      r.stops.forEach(c => { const v = cells.get(c) ?? cells.set(c, { colors: [], dim: true }).get(c)!; if (!v.colors.includes(r.color)) v.colors.push(r.color); v.dim &&= dim; });
       for (const q of r.visits) if (q.s <= v.out + 1e-9) stops.push({ type: 'Feature', properties: { dim, lo: true }, geometry: { type: 'Point', coordinates: this.loAt(r, q.s) } });
     }
     (this.map.getSource('routes') as GeoJSONSource).setData(fc(lines));
     (this.map.getSource('stops') as GeoJSONSource).setData(fc(stops));
+    // 셀마다 정류장 하나: 그 셀의 대표 도로 위 자리 (가는 길·오는 길 자리 사이가 아니라, 정류장 둘 곳으로 고른 바로 그 점)
+    const hi: GeoJSON.Feature[] = [];
+    for (const [cell, v] of cells) hi.push({ type: 'Feature', properties: { cell, dim: v.dim, img: this.stopImg(v.colors) }, geometry: { type: 'Point', coordinates: snapped(cell) } });
+    (this.map.getSource('stops-hi') as GeoJSONSource).setData(fc(hi));
+  }
+
+  // 정류장 그림: 노선 하나 = 24×24 흰 동그라미(먹 3px), 둘 이상 = 흰 알약(먹 3px, 높이 15) 안에 노선색 점 (넷 넘으면 +n)
+  private stopImgs = new Set<string>();
+  private stopImg(colors: string[]) {
+    const id = colors.length < 2 ? 'stop-1' : `stop-${colors.slice(0, 4).join('')}${colors.length > 4 ? `+${colors.length - 4}` : ''}`;
+    if (this.stopImgs.has(id)) return id;
+    const dpr = 2, c = document.createElement('canvas'), g = c.getContext('2d')!;
+    if (colors.length < 2) {
+      c.width = c.height = 24 * dpr; g.scale(dpr, dpr);
+      g.beginPath(); g.arc(12, 12, 7.5, 0, Math.PI * 2); g.fillStyle = '#FFFFFF'; g.fill(); g.lineWidth = 3; g.strokeStyle = INK; g.stroke();
+    } else {
+      const k = Math.min(4, colors.length), more = colors.length - k, w = Math.max(40, 18 + k * 9 + (more ? 14 : 0));
+      c.width = w * dpr; c.height = 24 * dpr; g.scale(dpr, dpr);
+      g.beginPath(); g.roundRect(2.5, 4.5, w - 5, 15, 7.5); g.fillStyle = '#FFFFFF'; g.fill(); g.lineWidth = 3; g.strokeStyle = INK; g.stroke();
+      const x0 = w / 2 - ((k - 1) * 9 + (more ? 14 : 0)) / 2;
+      colors.slice(0, k).forEach((col, i) => { g.beginPath(); g.arc(x0 + i * 9, 12, 3.5, 0, Math.PI * 2); g.fillStyle = col; g.fill(); g.lineWidth = 1; g.strokeStyle = INK; g.stroke(); });
+      if (more) { g.fillStyle = INK; g.font = '800 8px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`+${more}`, x0 + (k - 1) * 9 + 11, 12.5); }
+    }
+    this.map.addImage(id, g.getImageData(0, 0, c.width, c.height), { pixelRatio: dpr });
+    this.stopImgs.add(id); return id;
   }
 
   setDrawing(on: boolean) { this.map.setLayoutProperty('hex9-ns', 'visibility', on ? 'visible' : 'none'); }

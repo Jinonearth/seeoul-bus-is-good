@@ -128,7 +128,7 @@ function GameView({ dm }: { dm: Demand }) {
   // 지도 탭
   useEffect(() => {
     const m = gm.current; if (!m) return;
-    m.onTap = ({ lngLat, route }) => {
+    m.onTap = ({ lngLat, route, stop }) => {
       const d = draftRef.current;
       if (d) {   // 노선 그리기: 탭한 헥사곤(res9)마다 정류장 하나
         let c = latLngToCell(lngLat[1], lngLat[0], 9);
@@ -146,6 +146,7 @@ function GameView({ dm }: { dm: Demand }) {
         if (d.stops[d.stops.length - 1] === c) return;
         setDraft({ ...d, stops: [...d.stops, c] }); return;
       }
+      if (stop) { setSel({ kind: 'hex', cell: stop, at: snapped(stop) }); return; }   // 정류장을 누르면 그 칸 카드 (지나는 노선 번호)
       if (route != null) { setSel({ kind: 'route', id: route, at: lngLat }); return; }
       const c = m.cellAt(lngLat);
       const inSeoul = dm.byId.has(latLngToCell(lngLat[1], lngLat[0], 9));
@@ -173,7 +174,7 @@ function GameView({ dm }: { dm: Demand }) {
       if (!draft) { m.setDraft([], 0, [], ''); return; }
       const color = draft.editing?.color ?? routeStyle(game.routes.length).color;
       const rp = routePath(draft.stops, (draft.editing?.type ?? draft.type) === 'circ');
-      m.setDraft(rp.path, rp.outN, rp.stopPts, color);
+      m.setDraft(rp.path, rp.outN, draft.stops.map(snapped), color);   // 정류장 표시는 셀마다 하나
     });
     return () => { live = false; };
   }, [draft, game]);
@@ -263,7 +264,7 @@ function GameView({ dm }: { dm: Demand }) {
           onChange={() => { redrawRoutes(); rerender(); }} />
       </MapPopup>}
       {gm.current && sel?.kind === 'hex' && <MapPopup map={gm.current.map} at={sel.at} wide={more} onClose={() => setSel(null)}>
-        <HexPanel dm={dm} cell={sel.cell} bin={bin} more={more} setMore={setMore} onClose={() => setSel(null)} onStart={() => startDraft(latLngToCell(...cellToLatLng(sel.cell), 9))} />
+        <HexPanel dm={dm} cell={sel.cell} bin={bin} routes={game.routes.filter(r => r.stops.includes(sel.cell))} onRoute={id => setSel({ kind: 'route', id })} more={more} setMore={setMore} onClose={() => setSel(null)} onStart={() => startDraft(latLngToCell(...cellToLatLng(sel.cell), 9))} />
       </MapPopup>}
 
       {/* 아래: 노선 막대 + 재생 줄 (그리는 중엔 노선 그리기 패널) */}
@@ -340,7 +341,7 @@ const Stat = ({ i, v, label, warn }: { i: string; v: React.ReactNode; label: str
   <div className={warn ? 'warn' : ''} aria-label={label}><Icon n={i} s={15} /><b>{v}</b></div>;
 
 // 헥사곤 팝업: 동 이름(구) ⌄ ✕ / 지금 시간당 출발·도착 / + 여기서 노선. ⌄로 시간대 그래프와 가고 싶은 곳·오고 싶은 곳
-function HexPanel({ dm, cell, bin, onStart, onClose, more, setMore }: { dm: Demand; cell: string; bin: number; onStart: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
+function HexPanel({ dm, cell, bin, routes, onRoute, onStart, onClose, more, setMore }: { dm: Demand; cell: string; bin: number; routes: Route[]; onRoute: (id: number) => void; onStart: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
   const [lat, lng] = cellToLatLng(cell), c9 = dm.byId.get(latLngToCell(lat, lng, 9));
   const res = parseInt(cell[1], 16) & 15;
   const agg = res === 9 ? c9 : dm.parents[res === 7 ? 0 : 1].get(cell);
@@ -352,6 +353,7 @@ function HexPanel({ dm, cell, bin, onStart, onClose, more, setMore }: { dm: Dema
     <div className="ph"><b className="pt">{dm.dongs[c9.dong].n}<small>{dm.dongs[c9.dong].gu}</small></b>
       <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={14} /></button></div>
     <div className="pg"><span aria-label="지금 시간당 출발"><Icon n="out" s={14} /><b>{fmt(perH(agg.O, bin))}</b><small>/h</small></span><span aria-label="지금 시간당 도착"><Icon n="in" s={14} /><b>{fmt(perH(agg.D, bin))}</b><small>/h</small></span></div>
+    {routes.length > 0 && <div className="proutes" aria-label="이 정류장에 서는 노선">{routes.map(r => <button key={r.id} className="badge" style={{ background: r.color, color: r.tx }} onClick={() => onRoute(r.id)} aria-label={`${r.num}번`}>{r.num}</button>)}</div>}
     <button className="pgo" onClick={onStart} aria-label="여기서 노선 시작">+ <Icon n="route" s={16} /></button>
     {more && <>
       <div className="psec"><div className="bins">{dm.bins.map((b, i) => <div key={i} className={i === bin ? 'now' : ''} aria-label={`${b.name} 출발 ${fmt(perH(agg.O, i))}, 도착 ${fmt(perH(agg.D, i))} (시간당)`}>
@@ -384,7 +386,7 @@ function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClo
   const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); setBusCount(dm, r, n); onChange(); };
   return <>
     <span className={`pstrip p${r.pattern}`} style={{ '--rc': r.color } as React.CSSProperties} aria-hidden="true" />
-    <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{routeName(r)}</b><Icon n={r.type} s={14} label={TYPES[r.type]} className="mut" />
+    <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }} aria-label={`${r.num}번, ${r.type === 'circ' ? `${routeName(r)} 순환` : `${r.from}에서 ${r.to}`}`}>{r.num}</span><Icon n={r.type} s={14} label={TYPES[r.type]} className="mut" /><span className="pt" />
       <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={14} /></button></div>
     <div className="pg">
       <span><Icon n="bus" s={14} /><b aria-label={`투입 버스 ${r.buses}대`}>{r.buses}</b><PM dec={r.buses <= 1} inc={r.buses >= free} onDec={() => setN(r.buses - 1)} onInc={() => setN(r.buses + 1)} /></span>

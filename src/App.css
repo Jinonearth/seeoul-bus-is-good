@@ -342,3 +342,15 @@ dl.icons dd{margin:0}
 /* 캐러셀: 손가락은 가로로만, 마우스 끌기 중엔 글자 선택 안 되게 */
 #routebar .carousel{touch-action:pan-x;cursor:grab;user-select:none}
 #routebar .carousel:active{cursor:grabbing}
+
+.popup .proutes{display:flex;flex-wrap:wrap;gap:4px;padding:6px 0 0}
+.popup .proutes .badge{border:0;height:20px;min-width:0;padding:0 6px;font-size:13px;line-height:20px;cursor:pointer}
+/* 팝업 줄 맞춤: 칸마다 가운데 정렬, 아이콘은 block(기준선 틈 없음), 글자는 줄 높이 20px로 고정 */
+.popup .ic{display:block;vertical-align:baseline}
+.popup .ph,.popup .pg > span,.popup .pr{align-items:center}
+.popup .pg > span > *{flex:none}
+.popup .pg b,.popup .pg small,.popup .pt,.popup .pt small,.popup .ph .badge{line-height:20px}
+.popup .pg small{display:block}
+.popup .ph .badge{height:20px;display:block}
+.popup .pmeter{display:block}
+.popup .pm{display:flex}
