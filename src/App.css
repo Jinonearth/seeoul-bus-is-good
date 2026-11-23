@@ -23,32 +23,6 @@
 .more svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .more.wide{width:100%;height:28px;display:flex;justify-content:center;gap:4px;border:1.5px dashed var(--muted);color:var(--muted)}
 /* 지도 위 팝업 */
-.popup{position:absolute;z-index:4;width:min(236px,92%);padding:6px 8px;display:flex;flex-direction:column;box-shadow:0 8px 22px rgba(29,29,27,.25);font-size:12.5px}
-.popup.wide{width:min(320px,92%)}
-.popup .ph,.popup .pr{display:flex;align-items:center;gap:4px;min-width:0}
-.popup .pr.small{min-height:20px}
-.popup .pt{flex:1;min-width:0;font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.popup .ps{display:inline-flex;align-items:center;gap:3px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;margin-right:6px}
-.popup .ps .ic{color:var(--muted)}
-.popup .ps.bad,.popup .ps.bad .ic{color:var(--bad)}
-.popup .pb{flex:none;width:36px;height:36px;border:2px solid var(--ink);background:#fff;display:grid;place-items:center;cursor:pointer;font-size:17px;font-weight:800;padding:0;position:relative}
-.popup .pb::after{content:'';position:absolute;inset:-4px}
-.popup .pb.primary{background:var(--accent);width:auto;padding:0 8px;display:inline-flex;gap:1px;margin-left:auto}
-.popup .pb:disabled{opacity:.35}
-.popup .pb .chev{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.popup .ph .badge{min-width:40px;height:26px;font-size:15px;padding:0 6px}
-.popup .sub{font-size:11.5px}
-.popup .quick b{font-size:12.5px}
-.popup .quick div{padding:5px 6px}
-.popup .segt{font-size:12px}
-.popup .bins{height:64px}
-.popup .pbody{overflow:auto;display:flex;flex-direction:column;gap:5px;overscroll-behavior:contain;min-height:0}
-.popup h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:18px}
-.popup h3{margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
-.popup .tip{position:absolute;bottom:-8px;width:12px;height:12px;margin-left:-6px;background:var(--paper);border:2px solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
-.popup .tip[data-below="1"]{bottom:auto;top:-8px;border-width:2px 0 0 2px}
-.popup .head{gap:8px}
-.popup .badge{min-width:44px;height:30px;font-size:17px}
 .r1{display:flex;align-items:center;gap:8px}
 .when{display:flex;flex-direction:column;line-height:1.15;min-width:0}
 .clock{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
@@ -268,3 +242,70 @@ dl.icons dd{margin:0}
 #zoom,#helpbox{right:var(--side)}
 /* 지도 출처(ⓘ): 아래 상자 밑(안전 영역 틈)에 깔리지 않게 위 상태 막대 아래 오른쪽으로 */
 #app .maplibregl-ctrl-bottom-right{top:calc(var(--top-h) + 14px + env(safe-area-inset-top,0px));bottom:auto;right:calc(var(--side) - 10px)}
+
+/* ── 지도 위 팝업 (B 인쇄 노선도): 2px 먹 테두리 하나, 각진 모서리, 안쪽은 1px 가는 줄로만 나눠요. 8px 격자, 안쪽 10px ── */
+.popup{position:absolute;z-index:4;width:min(232px,92%);padding:0;display:flex;flex-direction:column;background:var(--paper);border:2px solid var(--ink);box-shadow:0 6px 18px rgba(29,29,27,.22);font-size:13px;--hair:#D6D0C0;--mut:#6B675E}
+.popup.wide{width:min(296px,92%)}
+.popup .pbody{overflow:auto;display:flex;flex-direction:column;min-height:0;overscroll-behavior:contain}
+.popup .pbody > *{margin:0 10px}
+.popup .tip{position:absolute;bottom:-8px;width:12px;height:12px;margin-left:-6px;background:var(--paper);border:2px solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.popup .tip[data-below="1"]{bottom:auto;top:-8px;border-width:2px 0 0 2px}
+.popup small{font-size:11px;color:var(--mut);font-weight:600}
+.popup .ic{color:var(--mut);flex:none}
+.popup .bad,.popup .bad .ic,.popup .bad b{color:var(--bad)}
+/* 노선색 띠 (패턴 반영) */
+.popup .pbody > .pstrip{margin:0;height:4px;flex:none;background:var(--rc)}
+.popup .pstrip.p1{background:repeating-linear-gradient(90deg,var(--rc) 0 8px,transparent 8px 12px)}
+.popup .pstrip.p2{background:linear-gradient(var(--rc),var(--rc)) 0 0/100% 1.5px no-repeat,linear-gradient(var(--rc),var(--rc)) 0 100%/100% 1.5px no-repeat}
+.popup .pstrip.p3{background:radial-gradient(circle,var(--rc) 1.6px,transparent 1.8px) 0 50%/8px 4px repeat-x}
+/* 머리 줄 */
+.popup .ph{display:flex;align-items:center;gap:8px;min-height:40px;border-bottom:1px solid var(--hair)}
+.popup .ph .badge{min-width:0;height:22px;padding:0 6px;font-size:14px;line-height:22px;flex:none}
+.popup .pt{flex:1;min-width:0;font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:baseline;gap:6px}
+.popup .pt small{flex:none}
+.popup .pb{flex:none;width:28px;height:28px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;padding:0;position:relative;color:var(--ink)}
+.popup .pb::after{content:'';position:absolute;inset:-8px}
+.popup .pb .ic{color:var(--ink)}
+.popup .pb .chev{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.popup .ph .pb:first-of-type{margin-left:auto}
+/* 몸통: 두 칸 격자, 아이콘 + 값 */
+.popup .pg{display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
+.popup .pg > span{display:flex;align-items:center;gap:6px;min-height:32px;border-bottom:1px solid var(--hair);min-width:0;white-space:nowrap}
+.popup .pg b{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+.popup .pstep{width:28px;height:28px;border:2px solid var(--ink);background:#fff;display:grid;place-items:center;font-size:15px;font-weight:800;cursor:pointer;padding:0;position:relative}
+.popup .pstep::after{content:'';position:absolute;inset:-8px -2px}
+.popup .pstep:disabled{opacity:.35}
+.popup .pg > span:first-child{gap:4px}
+.popup .pg > span:first-child b{min-width:18px;text-align:center}
+.popup .pmeter{display:inline-block;width:52px;height:6px;background:var(--hair);flex:none}
+.popup .pmeter i{display:block;height:100%;background:var(--ink)}
+.popup .bad .pmeter i{background:var(--bad)}
+.popup .ex{border:1px solid var(--ink);padding:0 4px;margin-left:4px}
+/* 헥사곤: 여기서 노선 */
+.popup .pgo{margin:8px 10px 10px;height:32px;border:2px solid var(--ink);background:var(--accent);display:flex;align-items:center;justify-content:center;gap:4px;font-size:15px;font-weight:800;cursor:pointer;position:relative}
+.popup .pgo::after{content:'';position:absolute;inset:-6px 0}
+.popup .pgo .ic{color:var(--ink)}
+/* 펼친 내용 */
+.popup .psec{padding:8px 0;border-bottom:1px solid var(--hair)}
+.popup .ih{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.popup .bins{height:56px}
+.popup .plist{display:flex;flex-direction:column}
+.popup .plist > div{display:grid;grid-template-columns:1fr 48px 40px;gap:8px;align-items:center;min-height:22px;border-top:1px solid var(--hair);font-size:11px}
+.popup .plist > div:first-child{border-top:0}
+.popup .plist span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.popup .plist i{display:block;height:4px;background:var(--ink)}
+.popup .plist b{text-align:right;font-variant-numeric:tabular-nums;font-size:11px}
+.popup .ptab{width:auto;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}
+.popup .ptab th{color:var(--mut);font-weight:600;text-align:right;padding:6px 4px 4px;border-bottom:1px solid var(--hair)}
+.popup .ptab td{text-align:right;padding:4px;border-bottom:1px solid var(--hair)}
+.popup .ptab th:first-child,.popup .ptab td:first-child{text-align:left;padding-left:0}
+.popup .ptab tr.now td{font-weight:800;background:#FFF3CF}
+.popup .pacts{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 0 10px}
+.popup .pacts button{height:32px;border:2px solid var(--ink);background:#fff;display:flex;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-weight:800;position:relative}
+.popup .pacts button::after{content:'';position:absolute;inset:-6px 0}
+.popup .pacts button .ic{color:var(--ink)}
+.popup .pacts .danger,.popup .pacts .danger .ic{color:var(--bad)}
+.popup .pacts .danger.armed{background:var(--bad);color:#fff}
+.popup .pacts .danger.armed .ic{color:#fff}
+.popup .pbody > .pg:last-child{margin-bottom:6px}
+.popup .pg > span:nth-last-child(-n+2){border-bottom:0}

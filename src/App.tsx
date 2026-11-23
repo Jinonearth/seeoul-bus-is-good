@@ -326,7 +326,7 @@ function flowsOf(dm: Demand, cell: string, bin: number) {
 const Stat = ({ i, v, label, warn }: { i: string; v: React.ReactNode; label: string; warn?: boolean }) =>
   <div className={warn ? 'warn' : ''} aria-label={label}><Icon n={i} s={15} /><b>{v}</b></div>;
 
-// 헥사곤 팝업: 기본은 동 이름, 지금 시간당 출발·도착, + 노선. ⋯로 시간대 그래프와 가고 싶은 곳·오고 싶은 곳
+// 헥사곤 팝업: 동 이름(구) ⌄ ✕ / 지금 시간당 출발·도착 / + 여기서 노선. ⌄로 시간대 그래프와 가고 싶은 곳·오고 싶은 곳
 function HexPanel({ dm, cell, bin, onStart, onClose, more, setMore }: { dm: Demand; cell: string; bin: number; onStart: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
   const [lat, lng] = cellToLatLng(cell), c9 = dm.byId.get(latLngToCell(lat, lng, 9));
   const res = parseInt(cell[1], 16) & 15;
@@ -336,16 +336,15 @@ function HexPanel({ dm, cell, bin, onStart, onClose, more, setMore }: { dm: Dema
   const { out } = flowsOf(dm, cell, bin), maxV = Math.max(1, ...out.map(o => o.v));
   const peak = Math.max(...dm.bins.map((_, b) => Math.max(perH(agg.O, b), perH(agg.D, b))));
   return <>
-    <div className="ph"><b className="pt">{dm.dongs[c9.dong].n}</b>
-      <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={16} /></button></div>
-    <div className="pr"><span className="ps" aria-label="지금 시간당 출발"><Icon n="out" s={14} />{fmt(perH(agg.O, bin))}/h</span><span className="ps" aria-label="지금 시간당 도착"><Icon n="in" s={14} />{fmt(perH(agg.D, bin))}/h</span>
-      <button className="pb primary" onClick={onStart} aria-label="여기서 노선 시작">+<Icon n="route" s={16} /></button></div>
+    <div className="ph"><b className="pt">{dm.dongs[c9.dong].n}<small>{dm.dongs[c9.dong].gu}</small></b>
+      <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={14} /></button></div>
+    <div className="pg"><span aria-label="지금 시간당 출발"><Icon n="out" s={14} /><b>{fmt(perH(agg.O, bin))}</b><small>/h</small></span><span aria-label="지금 시간당 도착"><Icon n="in" s={14} /><b>{fmt(perH(agg.D, bin))}</b><small>/h</small></span></div>
+    <button className="pgo" onClick={onStart} aria-label="여기서 노선 시작">+ <Icon n="route" s={16} /></button>
     {more && <>
-      <div className="sub">{dm.dongs[c9.dong].gu} · <Icon n="person" s={12} label="하루 출발" />Σ {fmt(agg.O.reduce((a, b) => a + b, 0))}</div>
-      <div><div className="bins">{dm.bins.map((b, i) => <div key={i} className={i === bin ? 'now' : ''} aria-label={`${b.name} 출발 ${fmt(perH(agg.O, i))}, 도착 ${fmt(perH(agg.D, i))} (시간당)`}>
+      <div className="psec"><div className="bins">{dm.bins.map((b, i) => <div key={i} className={i === bin ? 'now' : ''} aria-label={`${b.name} 출발 ${fmt(perH(agg.O, i))}, 도착 ${fmt(perH(agg.D, i))} (시간당)`}>
         <span className="bo" style={{ height: `${perH(agg.O, i) / peak * 100}%` }} /><span className="bd" style={{ height: `${perH(agg.D, i) / peak * 100}%` }} /><small><Icon n={`b${i}`} s={13} /></small></div>)}</div></div>
-      {(['out', 'in'] as const).map(k => <div key={k}><h3 className="ih"><Icon n={k} s={13} label={k === 'out' ? '여기서 가고 싶은 곳' : '여기로 오고 싶은 곳'} /><span className={`swatch ${k}`} aria-hidden="true" /></h3>
-        <div className="list">{out.filter(o => o.out === (k === 'out')).map(o => <div className="it" key={o.name}><span>{o.name}</span><span className="b" style={{ width: `${o.v / maxV * 60}px` }} /><span>{fmt(o.v / binHours(dm.bins[bin]))}</span></div>)}</div></div>)}
+      {(['out', 'in'] as const).map(k => <div className="psec" key={k}><div className="ih"><Icon n={k} s={14} label={k === 'out' ? '여기서 가고 싶은 곳' : '여기로 오고 싶은 곳'} /><span className={`swatch ${k}`} aria-hidden="true" /></div>
+        <div className="plist">{out.filter(o => o.out === (k === 'out')).map(o => <div key={o.name}><span>{o.name}</span><i style={{ width: `${o.v / maxV * 48}px` }} /><b>{fmt(o.v / binHours(dm.bins[bin]))}</b></div>)}</div></div>)}
     </>}
   </>;
 }
@@ -360,30 +359,37 @@ function Stepper({ n, min, max, onSet, free }: { n: number; min: number; max: nu
     <span className="need" aria-label={`남은 버스 ${free}대`}><Icon n="bus" s={13} />{free}</span></div>;
 }
 
-// 노선 팝업: 기본은 번호·구간·닫기 / 버스 −N+ 배차간격 / 하루 수송·혼잡. ⋯로 나머지(한 바퀴, 길이, 정원, 놓침, 시간대 표, 수정·폐선)
+// 노선 팝업: 노선색 띠 / 번호·이름·종류 ⌄ ✕ / 🚌 −N+ | 🕒 배차 / 👤 오늘 | 탑승률. ⌄로 한 바퀴·길이, 정원·놓침, 시간대 표, 수정·폐선
 function RoutePanel({ dm, game, r, bin, toast, onEdit, onDelete, onChange, onClose, more, setMore }: { dm: Demand; game: Game; r: Route; bin: number; toast: (t: Toast) => void; onEdit: () => void; onDelete: () => void; onChange: () => void; onClose: () => void; more: boolean; setMore: (v: boolean) => void }) {
   const [armed, setArmed] = useState(false);
   const free = game.fleet - game.usedBuses(r), demand = r.demand.reduce((a, b) => a + b, 0), carried = r.carried.reduce((a, b) => a + b, 0);
   const crowd = r.bus.length ? r.bus.reduce((a, b) => a + b.on, 0) / r.bus.length / BUS_CAP : 0;   // 지금 버스들 평균 탑승률
+  const full = r.bus.some(b => b.full);
   const setN = (n: number) => { if (n < 1) return; if (n > free) return toast({ text: <><Icon n="bus" s={14} />0</>, kind: 'warn' }); updateRoute(dm, r, r.stops, n); onChange(); };
   return <>
-    <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{r.type === 'circ' && <Icon n="circ" s={14} label="순환" />}{routeName(r)}</b>
-      <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={16} /></button></div>
-    <div className="pr"><button className="pb" aria-label="버스 빼기" disabled={r.buses <= 1} onClick={() => setN(r.buses - 1)}>−</button>
-      <b className="ps" aria-label={`투입 버스 ${r.buses}대`}><Icon n="bus" s={14} />{r.buses}</b>
-      <button className="pb" aria-label="버스 더 넣기" disabled={r.buses >= free} onClick={() => setN(r.buses + 1)}>+</button>
-      <span className="ps" aria-label="배차간격"><Icon n="clock" s={14} />{fmtHw(r.headway)}′</span></div>
-    <div className="pr small"><span className="ps" aria-label="오늘 탄 사람"><Icon n="person" s={13} />{fmt(r.today ?? 0)}</span>
-      <span className={`ps ${r.bus.some(b => b.full) ? 'bad' : ''}`} aria-label={`지금 버스 평균 탑승률 ${Math.round(crowd * 100)}%`}>{r.bus.some(b => b.full) && <Icon n="warn" s={13} label="만차로 못 탄 사람 있음" />}<Icon n="cap" s={13} />{Math.round(crowd * 100)}%</span></div>
+    <span className={`pstrip p${r.pattern}`} style={{ '--rc': r.color } as React.CSSProperties} aria-hidden="true" />
+    <div className="ph"><span className="badge" style={{ background: r.color, color: r.tx }}>{r.num}</span><b className="pt">{routeName(r)}</b><Icon n={r.type} s={14} label={TYPES[r.type]} className="mut" />
+      <MoreBtn more={more} setMore={setMore} /><button className="pb" onClick={onClose} aria-label="닫기"><Icon n="x" s={14} /></button></div>
+    <div className="pg">
+      <span><Icon n="bus" s={14} /><button className="pstep" aria-label="버스 빼기" disabled={r.buses <= 1} onClick={() => setN(r.buses - 1)}>−</button><b aria-label={`투입 버스 ${r.buses}대`}>{r.buses}</b><button className="pstep" aria-label="버스 더 넣기" disabled={r.buses >= free} onClick={() => setN(r.buses + 1)}>+</button></span>
+      <span aria-label="배차간격"><Icon n="clock" s={14} /><b>{fmtHw(r.headway)}′</b></span>
+      <span aria-label="오늘 탄 사람"><Icon n="person" s={14} /><b>{fmt(r.today ?? 0)}</b></span>
+      <span className={full ? 'bad' : ''} aria-label={`지금 버스 평균 탑승률 ${Math.round(crowd * 100)}%${full ? ', 만차로 못 탄 사람 있음' : ''}`}><i className="pmeter"><i style={{ width: `${Math.min(100, crowd * 100)}%` }} /></i><b>{Math.round(crowd * 100)}%</b>{full && <Icon n="warn" s={14} />}</span>
+      {more && <>
+        <span aria-label="한 바퀴"><Icon n="loop" s={14} /><b>{Math.round(r.cyc)}′</b></span>
+        <span aria-label="노선 길이 (편도)"><Icon n="ruler" s={14} /><b>{r.lenKm.toFixed(1)}</b><small>km</small></span>
+        <span aria-label="시간당 정원"><Icon n="cap" s={14} /><b>{fmt(r.capH)}</b><small>/h</small></span>
+        <span className={demand - carried > 1 ? 'bad' : ''} aria-label="하루 놓침 예상"><Icon n="miss" s={14} /><b>~{fmt(demand - carried)}</b></span>
+        <span aria-label="정류장"><Icon n="stop" s={14} /><b>{r.stops.length}</b></span>
+        <span aria-label="남은 버스"><Icon n="bus" s={14} /><small>+</small><b>{free - r.buses}</b>{r.example && <small className="ex">EX</small>}</span>
+      </>}
+    </div>
     {more && <>
-      <div className="sub"><Icon n={r.type} s={13} label={TYPES[r.type]} /> <Icon n="stop" s={12} label="정류장" />{r.stops.length} · <Icon n="bus" s={12} label="남은 버스" />{free - r.buses}{r.example && <span className="ex">EX</span>}</div>
-      <div className="quick"><Stat i="loop" v={`${Math.round(r.cyc)}′`} label="한 바퀴" /><Stat i="ruler" v={`${r.lenKm.toFixed(1)}km`} label="노선 길이 (편도)" /><Stat i="cap" v={`${fmt(r.capH)}/h`} label="시간당 정원" /></div>
-      <div className="quick"><Stat i="person" v={`~${fmt(carried)}`} label="하루 수송 예상" /><Stat i="miss" v={`~${fmt(demand - carried)}`} label="하루 놓침 예상" warn={demand - carried > 1} /></div>
-      <table className="segt"><thead><tr><th /><th><Icon n="person" s={12} label="수요" />/h</th><th><Icon n="cap" s={12} label="정원" />/h</th><th /></tr></thead><tbody>
-        {dm.bins.map((b, i) => { const d = r.demand[i] / binHours(b); return <tr key={i} className={i === bin ? 'now' : ''}><td><Icon n={`b${i}`} s={13} label={b.name} /> {hh(b.from)}–{hh(b.to)}</td><td>{fmt(d)}</td><td>{fmt(r.capH)}</td><td>{d > r.capH ? <Icon n="warn" s={13} label="정원 초과" className="bad" /> : <Icon n="ok" s={13} label="여유" className="good" />}</td></tr>; })}
+      <table className="ptab"><thead><tr><th /><th><Icon n="person" s={12} label="수요" />/h</th><th><Icon n="cap" s={12} label="정원" />/h</th><th /></tr></thead><tbody>
+        {dm.bins.map((b, i) => { const d = r.demand[i] / binHours(b); return <tr key={i} className={i === bin ? 'now' : ''}><td><Icon n={`b${i}`} s={12} label={b.name} /> {hh(b.from)}–{hh(b.to)}</td><td>{fmt(d)}</td><td>{fmt(r.capH)}</td><td>{d > r.capH ? <Icon n="warn" s={12} label="정원 초과" className="bad" /> : <Icon n="ok" s={12} label="여유" className="good" />}</td></tr>; })}
       </tbody></table>
-      <div className="row"><button className="btn icon" onClick={onEdit} aria-label="노선 수정"><Icon n="edit" s={18} /></button>
-        <button className={`btn icon danger ${armed ? 'armed' : ''}`} onClick={() => (armed ? onDelete() : setArmed(true))} aria-label={armed ? '한 번 더 누르면 폐선' : '폐선'}><Icon n="trash" s={18} />{armed && '?'}</button></div>
+      <div className="pacts"><button onClick={onEdit} aria-label="노선 수정"><Icon n="edit" s={16} /></button>
+        <button className={`danger ${armed ? 'armed' : ''}`} onClick={() => (armed ? onDelete() : setArmed(true))} aria-label={armed ? '한 번 더 누르면 폐선' : '폐선'}><Icon n="trash" s={16} />{armed && '?'}</button></div>
     </>}
   </>;
 }
