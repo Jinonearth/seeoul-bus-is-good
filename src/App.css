@@ -57,9 +57,6 @@
 
 /* 범례·줌·도움말 */
 #legend,#zoom,#helpbox{position:absolute;bottom:calc(var(--bar-h) + 16px + env(safe-area-inset-bottom,0px));z-index:2}
-#legend{left:10px;padding:0 12px;height:44px;display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
-#legend .dot{width:12px;height:12px;border-radius:50%;background:var(--pink)}
-#legend .next{color:var(--muted);font-size:11px}
 .legend-big{border:1.5px solid var(--ink);background:#fff;padding:8px 10px;font-size:11px;color:var(--muted)}
 .legend-big > svg{display:block;width:100%;height:auto;margin:5px 0 2px}
 .legend-big .ends{display:flex;justify-content:space-between;font-size:10px}

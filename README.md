@@ -35,7 +35,8 @@ npm run build    # dist/
 | `src/map/` | MapLibre 지도(B "인쇄 노선도" 스타일)와 게임 레이어 |
 | `src/App.tsx` | 화면: 상단 HUD, 범례, 줌, 아래 시트(노선 칩 + 패널) |
 | `public/tiles/seoul.pmtiles` | 도로·구·동 경계·한강 벡터 타일 (줌 9–14) |
-| `public/tiles/land.pmtiles` | 땅 쓰임(OSM)과 부풀린 아스팔트 도로 면 (줌 11–14). 나무·지붕 무늬는 `src/map/sprites.ts`에서 직접 그려요 |
+| `public/tiles/land.pmtiles` | 부풀린 도로 면 (줌 13–14) |
+| `public/data/terrain.json` | 헥사곤(res7·8·9)마다 가장 넓은 땅 쓰임(OSM). 지도에선 `src/map/sprites.ts`에서 직접 그린 픽셀 아트 무늬로 칠해요 |
 | `public/data/` | `demand.json`(res9 셀 비중, 동 목록), `od.json`(평일 동→동 통행), `snap.json`(정류장 둘 수 있는 셀 → 도로 위 점), `roads.json`(버스 길 찾기 도로 그래프, 한 방향 간선) |
 | `scripts/` | 위 데이터를 만드는 스크립트 |
 
@@ -47,7 +48,8 @@ python3 scripts/build_tiles.py "<[날짜]NODELINKDATA.zip>" <seoul.json> public/
 python3 scripts/build_game_data.py <seoul.json> <hex_weights.json> <od_dong.json> public/data
 python3 scripts/build_stop_snap.py "<[날짜]NODELINKDATA.zip>" public/data/demand.json public/data   # snap.json + roads.json
 curl -s --data-urlencode data@scripts/overpass_land.txt https://overpass-api.de/api/interpreter -o osm_land.json   # OSM 땅 쓰임
-python3 scripts/build_land.py "<[날짜]NODELINKDATA.zip>" osm_land.json public/tiles/land.pmtiles   # 땅 쓰임 + 아스팔트 도로 면
+python3 scripts/build_land.py "<[날짜]NODELINKDATA.zip>" osm_land.json public/tiles/land.pmtiles --no-land   # 부풀린 도로 면
+python3 scripts/build_terrain.py osm_land.json public/data/demand.json public/data/terrain.json   # 헥사곤마다 지형(숲·녹지·주거·상업·공업)
 python3 scripts/build_subway.py "<서울시 역사마스터 정보.csv>" public/data/demand.json public/data/subway.json
 node scripts/build_seed_routes.mjs   # 예시 노선 정류장 → src/game/seeds.ts (도로 데이터를 바꾸면 다시)
 ```

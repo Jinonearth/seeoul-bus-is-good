@@ -1,13 +1,12 @@
 // MapLibre 지도와 게임 레이어(헥사곤 수요, 수요 흐름, 노선, 정류장, 버스)
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
-import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
+import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS } from 'h3-js';
 import { type Demand, stopable, snapped } from '../game/data';
-import { type Route, posAt, WALK, BUS_CAP } from '../game/model';
+import { type Route, posAt, BUS_CAP } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
-import { addLandSprites } from './sprites';
+import { addTerrainPatterns, VARIANTS } from './sprites';
 
-export type Layer = 'o' | 'd' | 'u';
 export type Flow = { from: [number, number]; to: [number, number]; v: number; out: boolean };
 const HEX_RES = [7, 8, 9] as const;
 // 헥사곤은 화면 줌보다 한 단계 굵게: 같은 줌에서 한 단계 큰 셀
@@ -16,6 +15,17 @@ const ZRANGE: Record<number, [number, number]> = { 7: [0, 12], 8: [12, 13.5], 9:
 const DOT = [0, 0.16, 0.32, 0.48, 0.64, 0.8];
 // 탄 사람 채움 색 (Okabe-Ito): ¼·½ 초록 여유, ¾ 노랑 붐빔, 꽉 빨강 만원. 길이도 함께 늘어서 색 없이도 읽혀요
 const LOAD_COLOR = ['', '#009E73', '#009E73', '#F0E442', '#D55E00'];
+// 지하철을 지도에 그릴지 (수요 계산에서 지하철과 겨루는 건 그대로). 지금은 숨겨요
+export const SHOW_SUBWAY = false;
+// 지형: OSM 땅 쓰임이 없는 칸(o)도 정류장을 둘 수 있는 도심이면 집(r), 수요가 아주 큰 곳이면 건물(c)로 채워요
+const busy: Record<number, number> = {};
+function terrainOf(dm: Demand, c: { id: string; O: number[] }, res: number) {
+  const t = dm.terrain[c.id] ?? 'o'; if (t !== 'o') return t;
+  if (busy[res] === undefined) { const list = res === 9 ? dm.cells : [...dm.parents[res === 7 ? 0 : 1].values()]; const v = list.map(x => x.O.reduce((a, b) => a + b, 0)).sort((a, b) => a - b); busy[res] = v[Math.floor(v.length * 0.85)]; }
+  const tot = c.O.reduce((a, b) => a + b, 0);
+  if (tot >= busy[res]) return 'c';
+  return res < 9 || stopable(c.id) ? 'r' : 'o';
+}
 const LO_Z = 13, LO_TOL_M = 300;   // 이 줌 아래에선 노선을 단순한 선 하나로 (Douglas-Peucker 허용 거리)
 const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540;
 const mDist = (a: [number, number], b: [number, number]) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY) / 1000;
@@ -79,17 +89,16 @@ export class GameMap {
 
   private addLayers() {
     const m = this.map;
-    // 땅 쓰임 무늬: 직접 그린 작은 픽셀 나무·지붕을 흐리게 깔아요 (줌 11 아래는 안 보임)
-    addLandSprites(m);
-    m.addLayer({ id: 'land-pat', type: 'fill', source: 'land', 'source-layer': 'land', minzoom: 11,
-      paint: { 'fill-pattern': ['match', ['get', 'class'], 'forest', 'pat-forest', 'green', 'pat-green', 'res', 'pat-res', 'com', 'pat-com', 'pat-ind'],
-        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0, 12, 0.35, 14, 0.75] } }, 'river');
+    // 헥사곤 지형 타일: 셀마다 바탕색 + 직접 그린 픽셀 그림(나무·집·건물), 도로·강 아래. 타일 사이는 옅은 틈
+    addTerrainPatterns(m);
     // 헥사곤 (해상도별): 옅은 먹 외곽선 + 핑크 망점
     for (const res of HEX_RES) {
       const [minzoom, maxzoom] = ZRANGE[res];
       m.addSource(`hex${res}`, { type: 'geojson', data: fc() });
       m.addSource(`dot${res}`, { type: 'geojson', data: fc(), promoteId: 'id' });
-      m.addLayer({ id: `hex${res}-u`, type: 'fill', source: `hex${res}`, minzoom, maxzoom, filter: ['==', ['get', 'u'], 1], paint: { 'fill-color': PINK, 'fill-opacity': 0.18 } });
+      // 지형 타일: 헥사곤마다 픽셀 아트 무늬(종류 × 변형 3), 사이는 옅은 틈. 도로·강 아래
+      m.addLayer({ id: `terrain${res}`, type: 'fill', source: `hex${res}`, minzoom, maxzoom, paint: { 'fill-pattern': ['concat', 'pat-', ['get', 't'], '-', ['get', 'v']] as never, 'fill-opacity': 0.85 } }, 'river');
+      m.addLayer({ id: `terrain${res}-gap`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': '#F4F0E4', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 15, 2.2], 'line-opacity': 0.85 } }, 'river');
       // 노선 그리는 중: 도로가 없어 정류장을 둘 수 없는 셀을 옅은 회색으로
       if (res === 9) m.addLayer({ id: 'hex9-ns', type: 'fill', source: 'hex9', minzoom, maxzoom, filter: ['==', ['get', 'ns'], 1], layout: { visibility: 'none' }, paint: { 'fill-color': INK, 'fill-opacity': 0.14 } });
       m.addLayer({ id: `hex${res}-line`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': INK, 'line-opacity': 0.12, 'line-width': 1 } });
@@ -101,11 +110,13 @@ export class GameMap {
           'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 8, ['*', ['get', 'r'], ['sqrt', ['coalesce', ['feature-state', 'k'], 1]], k(8)], 16, ['*', ['get', 'r'], ['sqrt', ['coalesce', ['feature-state', 'k'], 1]], k(16)]] } });
     }
     // 지하철: 노선색을 회색 쪽으로 흐리게 한 가는 선 + 역 눈금 (줌 11부터, 버스 노선 아래). 버스가 겨루는 상대
+    if (SHOW_SUBWAY) {
     const mute = (hex: string) => { const n = parseInt(hex.slice(1), 16), g = 0x9A, k = 0.45; const ch = (v: number) => Math.round(v * k + g * (1 - k)); return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`; };
     m.addSource('subway', { type: 'geojson', data: fc(this.dm.sub.lines.flatMap(l => l.s.map(seg => ({ type: 'Feature' as const, properties: { c: mute(l.c) }, geometry: { type: 'LineString' as const, coordinates: seg } })))) });
     m.addSource('subway-st', { type: 'geojson', data: fc(this.dm.sub.st.map(([, x, y]) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'Point' as const, coordinates: [x, y] } }))) });
     m.addLayer({ id: 'subway', type: 'line', source: 'subway', minzoom: 11, layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.2, 15, 3], 'line-opacity': 0.8 } });
     m.addLayer({ id: 'subway-st', type: 'circle', source: 'subway-st', minzoom: 11, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 1.8, 15, 4], 'circle-color': '#FFFFFF', 'circle-stroke-color': '#8A867C', 'circle-stroke-width': 1.2 } });
+    }
     m.addSource('sel', { type: 'geojson', data: fc() });
     m.addLayer({ id: 'sel', type: 'line', source: 'sel', paint: { 'line-color': INK, 'line-width': 3 } });
     // 수요 흐름: 나가는 = 파랑 실선, 들어오는 = 주황 점선
@@ -193,20 +204,17 @@ export class GameMap {
   }
 
   // 망점 실시간 크기: 셀(및 res7·8 묶음)마다 지금 기다리는 사람 ÷ 평소. 많이 바뀐 것만 고쳐요
-  private live = new Map<number, [string, boolean][]>();
+  private live = new Map<number, string[]>();
   private liveK = new Map<string, number>();
-  private layer: Layer = 'o';
   private kids: Map<string, number[]>[] | null = null;
   setLive(pool: Float64Array, eq: (i: number) => number) {
-    if (this.layer === 'd') return;
     const dm = this.dm;
     this.kids ??= [7, 8].map(res => { const m = new Map<string, number[]>(); dm.cells.forEach(c => { const p = cellToParent(c.id, res); (m.get(p) ?? m.set(p, []).get(p)!).push(c.i); }); return m; });
     for (const [res, list] of this.live) {
-      for (const [id, cov] of list) {
+      for (const id of list) {
         let k: number;
         if (res === 9) { const i = dm.byId.get(id)!.i, e = eq(i); k = e > 0 ? pool[i] / e : 1; }
         else { let p = 0, e = 0; for (const i of this.kids[res === 7 ? 0 : 1].get(id) ?? []) { p += pool[i]; e += eq(i); } k = e > 0 ? p / e : 1; }
-        if (this.layer === 'u' && cov && k < 0.6) k = 0;   // 버스가 닿고 잘 태워 가는 곳은 미충족 아님
         const key = res + id, old = this.liveK.get(key);
         if (old !== undefined && Math.abs(old - k) < 0.03) continue;
         this.liveK.set(key, k); this.map.setFeatureState({ source: `dot${res}`, id }, { k });
@@ -215,24 +223,21 @@ export class GameMap {
   }
 
   // 지금 시간대 수요를 헥사곤 망점으로
-  setDemand(layer: Layer, bin: number, covered: Set<string>) {
+  setDemand(bin: number) {
     const dm = this.dm;
-    this.layer = layer; this.liveK.clear();
-    const sets: [number, { id: string; lat: number; lng: number; O: number[]; D: number[]; Ou: number[] }[]][] = [
+    this.liveK.clear();
+    const sets: [number, { id: string; lat: number; lng: number; O: number[] }[]][] = [
       [7, [...dm.parents[0].values()]], [8, [...dm.parents[1].values()]], [9, dm.cells]];
     for (const [res, list] of sets) {
-      const val = (c: { id: string; O: number[]; D: number[]; Ou: number[] }) => {
-        if (layer !== 'u') return layer === 'd' ? c.D[bin] : c.O[bin];
-        return c.Ou[bin];   // 버스가 닿는 셀도 넣고, 실시간으로 기다리는 사람이 많을 때만 보여요(setLive)
-      };
+      const val = (c: { O: number[] }) => c.O[bin];   // 지금 시간대 출발 수요 (실시간 크기는 setLive)
       const vals = list.map(val), sorted = [...vals].sort((a, b) => a - b), ref = sorted[Math.floor(sorted.length * 0.98)] || 1;
-      const hex: GeoJSON.Feature[] = [], dot: GeoJSON.Feature[] = [], live: [string, boolean][] = [];
+      const hex: GeoJSON.Feature[] = [], dot: GeoJSON.Feature[] = [], live: string[] = [];
       list.forEach((c, i) => {
         const v = Math.sqrt(Math.min(1, vals[i] / ref));
         const ring = cellToBoundary(c.id, true);
-        const cov = isCovered(c.id, res, covered);
-        hex.push({ type: 'Feature', properties: { id: c.id, u: layer === 'u' && !cov && vals[i] > 0.04 * ref ? 1 : 0, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
-        if (v >= 0.08) { dot.push({ type: 'Feature', properties: { id: c.id, r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } }); live.push([c.id, cov]); }
+        const t = terrainOf(dm, c, res);
+        hex.push({ type: 'Feature', properties: { id: c.id, t, v: parseInt(c.id.slice(-6, -3), 16) % VARIANTS, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
+        if (v >= 0.08) { dot.push({ type: 'Feature', properties: { id: c.id, r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } }); live.push(c.id); }
       });
       this.live.set(res, live); this.map.removeFeatureState({ source: `dot${res}` });
       (this.map.getSource(`hex${res}`) as GeoJSONSource).setData(fc(hex));
@@ -361,15 +366,3 @@ export class GameMap {
   cellAt(lngLat: [number, number], res = resForZoom(this.map.getZoom())) { return latLngToCell(lngLat[1], lngLat[0], res); }
 }
 
-// 셀(해상도 res)이 정류장 걸어서 닿는 범위에 들어가는지
-function isCovered(id: string, res: number, covered: Set<string>) {
-  if (res === 9) return covered.has(id);
-  // 부모 셀: 자식 셀 중 하나라도 덮이면 덮인 것으로 본다 (setCoverage에서 미리 계산)
-  return parentCovered.get(res)?.has(id) ?? false;
-}
-const parentCovered = new Map<number, Set<string>>();
-export function setCoverage(covered: Set<string>, parentsOf: (id: string, res: number) => string) {
-  parentCovered.set(7, new Set([...covered].map(c => parentsOf(c, 7))));
-  parentCovered.set(8, new Set([...covered].map(c => parentsOf(c, 8))));
-}
-export const catchmentCells = (stop: string) => gridDisk(stop, WALK.length - 1);

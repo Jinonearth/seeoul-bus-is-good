@@ -1,6 +1,6 @@
 """배경 그림용 PMTiles: 땅 쓰임(녹지·숲·주거·상업·공업, OSM)과 굵게 부풀린 도로 면(표준노드링크)
 
-python3 scripts/build_land.py <NODELINKDATA.zip> <osm_land.json> public/tiles/land.pmtiles
+python3 scripts/build_land.py <NODELINKDATA.zip> <osm_land.json> public/tiles/land.pmtiles [--no-land]
 
 - osm_land.json: Overpass `out geom` 결과 (서울 bbox의 landuse·leisure·natural 면). 받는 쿼리는 README에.
   지도 데이터 © OpenStreetMap 기여자 (ODbL).
@@ -18,7 +18,7 @@ import mapbox_vector_tile
 from pmtiles.writer import Writer
 from pmtiles.tile import zxy_to_tileid, TileType, Compression
 
-SRC, OSM, OUT = sys.argv[1:4]
+SRC, OSM, OUT = [a for a in sys.argv[1:] if not a.startswith('--')][:3]
 BUF = {0: 16, 1: 12, 2: 8, 3: 5}   # 도로 반폭(m), 실제보다 부풀림
 BBOX = (126.76, 37.41, 127.19, 37.72)
 LAT0 = 37.55; KX = 111320 * math.cos(math.radians(LAT0)); KY = 110540
@@ -99,7 +99,8 @@ def tile_xy(lon, lat, z):
     return (lon + 180) / 360 * n, (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n
 def parts(g): return list(getattr(g, 'geoms', [g]))
 G = []   # (layer, geom, props, minzoom)
-for k, g in LAND.items():
+WITH_LAND = '--no-land' not in sys.argv   # 땅 쓰임은 이제 헥사곤 지형(build_terrain.py)으로 그려서 기본은 도로 면만
+for k, g in (LAND.items() if WITH_LAND else []):
     for p in parts(g):
         if p.geom_type == 'Polygon' and not p.is_empty: G.append(('land', p, {'class': k}, 11))
 for c, g in ROAD.items():

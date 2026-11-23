@@ -6,18 +6,16 @@ import './App.css';
 import { type Demand, loadDemand, binHours, stopable, snapped } from './game/data';
 import { loadRoads } from './game/roads';
 import { SEED_TRUNK, SEED_BRANCH, SEED_CIRC } from './game/seeds';
-import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, resetRouteIds, makeRoute, updateRoute, setBusCount, evalRoute, routePath, routeStyle, WALK } from './game/model';
+import { type Route, type RouteType, TYPES, RULES, BUS_CAP, routeName, resetRouteIds, makeRoute, updateRoute, setBusCount, evalRoute, routePath, routeStyle } from './game/model';
 import { Game, fmt, fmtK, type Settle } from './game/state';
 
 type Toast = { text: React.ReactNode; kind?: 'good' | 'warn' };
 import { Icon } from './ui/Icon';
-import { GameMap, type Layer, type Flow, setCoverage, resForZoom } from './map/GameMap';
+import { GameMap, type Flow, resForZoom, SHOW_SUBWAY } from './map/GameMap';
 
 // at: 팝업을 붙일 지도 위 점 (경도, 위도)
 type Sel = { kind: 'hex'; cell: string; at: [number, number] } | { kind: 'route'; id: number; at?: [number, number] } | { kind: 'draft' } | null;
 type Draft = { stops: string[]; type: RouteType; buses: number; editing?: Route; added?: string };   // added: 근처 노선에 새로 끼운 정류장
-const LAYER_NAME: Record<Layer, string> = { o: '출발 수요', d: '도착 수요', u: '버스가 닿지 않는 출발 수요' };
-const LAYER_ICON: Record<Layer, string> = { o: 'out', d: 'in', u: 'gap' };
 const hh = (h: number) => String(h).padStart(2, '0');
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 const fmtHw = (h: number) => (h < 10 ? h.toFixed(1) : String(Math.round(h)));
@@ -82,7 +80,6 @@ function GameView({ dm }: { dm: Demand }) {
   const [, setTick] = useState(0);
   const rerender = useCallback(() => setTick(t => t + 1), []);
   const [sel, setSel] = useState<Sel>(null);
-  const [layer, setLayer] = useState<Layer>('o');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stats, setStats] = useState(false);   // 아래 상태 막대 펼침(회사 현황)
   const [more, setMore] = useState(false);     // 팝업 자세히
@@ -108,10 +105,8 @@ function GameView({ dm }: { dm: Demand }) {
   const redrawRoutes = useCallback(() => {
     const m = gm.current; if (!m) return;
     m.setRoutes(game.routes, selRef.current?.kind === 'route' ? selRef.current.id : null);
-    const covered = new Set<string>(); for (const r of game.routes) for (const s of r.stops) for (const c of gridDisk(s, WALK.length - 1)) covered.add(c);
-    setCoverage(covered, (id, res) => cellToParent(id, res));
-    m.setDemand(layer, game.bin, covered);
-  }, [game, layer]);
+    m.setDemand(game.bin);
+  }, [game]);
 
   // 지도 만들기 + 예시 노선 2개
   useEffect(() => {
@@ -130,7 +125,7 @@ function GameView({ dm }: { dm: Demand }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dm]);
 
-  useEffect(() => { if (gm.current?.isReady) redrawRoutes(); }, [layer, focusId, redrawRoutes]);
+  useEffect(() => { if (gm.current?.isReady) redrawRoutes(); }, [focusId, redrawRoutes]);
   const redrawRef = useRef(redrawRoutes); redrawRef.current = redrawRoutes;
 
   // 도로 그래프는 첫 화면 뒤에 읽어요. 다 읽으면 노선을 실제 도로 길로 다시 계산
@@ -293,9 +288,6 @@ function GameView({ dm }: { dm: Demand }) {
       <div className="toasts">{toasts.map(x => <div key={x.id} className={`toast ${x.kind ?? ''}`}>{x.text}</div>)}</div>
 
       {/* 지도 위 버튼: 아래 노선 막대 바로 위 */}
-      <button className="box" id="legend" onClick={() => setLayer(l => (l === 'o' ? 'd' : l === 'd' ? 'u' : 'o'))} aria-label={`수요 레이어 바꾸기, 지금 ${LAYER_NAME[layer]}`}>
-        <i className="dot" aria-hidden="true" /><Icon n={LAYER_ICON[layer]} s={20} />
-      </button>
       <div className="box" id="helpbox"><button className="zb" aria-pressed={help} aria-label="화면 설명" onClick={() => setHelp(h => !h)}>?</button></div>
       <div className="box" id="zoom">
         <button className="zb" aria-label="확대" onClick={() => gm.current?.map.zoomIn()}><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
@@ -337,7 +329,7 @@ function GameView({ dm }: { dm: Demand }) {
 
       {help && <div className="help" onClick={() => setHelp(false)}><div className="box">
         <h2>화면 설명</h2>
-        <div className="legend-big"><div className="lt"><Icon n={LAYER_ICON[layer]} s={12} /> {LAYER_NAME[layer]} · 지금 시간대</div>
+        <div className="legend-big"><div className="lt"><Icon n="out" s={12} /> 지금 기다리는 사람 · 지금 시간대</div>
           <svg viewBox="0 0 320 60" aria-hidden="true"><g fill="none" stroke="#1D1D1B" strokeOpacity="0.3">{[32, 96, 160, 224, 288].map(x => <path key={x} d={`M${x} 6 L${x + 22} 18 L${x + 22} 42 L${x} 54 L${x - 22} 42 L${x - 22} 18 Z`} />)}</g>
           <g fill="#FF48B0">{[4, 8, 12, 16, 20].map((r, i) => <circle key={r} cx={32 + i * 64} cy="30" r={r} />)}</g></svg>
           <div className="ends"><span>적음</span><span>많음</span></div></div>
@@ -353,7 +345,7 @@ function GameView({ dm }: { dm: Demand }) {
         <p><b>지도:</b> 헥사곤이나 노선을 누르면 지도 위에 카드가 떠요. 헥사곤 카드에서는 그 칸에서 가고 싶은 곳(파랑 실선)과 오고 싶은 곳(주황 점선)이 보여요. 멀리서 보면 노선은 단순한 선 하나로 보여요.</p>
         <p><b>화면:</b> 위는 회사 상태(오늘 수송/목표, 페이스, 연속 미달, 버스)예요. 누르면 회사 현황이 펼쳐져요. 아래는 노선 막대(+로 새 노선)와 날짜·시각·속도 줄이에요. 지금 시간대는 위 막대를 펼치면 보여요.</p>
         <p><b>시간:</b> 아래 줄 오른쪽에서 속도를 골라요: ❚❚ 멈춤, ▶·▶▶·▶▶▶ = 현실 1초에 게임 1분·5분·10분.</p>
-        <p><b>지하철:</b> 지도의 흐린 색 선이 지하철이에요(줌을 당기면 보여요). 지하철이 빠른 구간은 버스 수요가 줄어요.</p>
+        {SHOW_SUBWAY && <p><b>지하철:</b> 지도의 흐린 색 선이 지하철이에요(줌을 당기면 보여요). 지하철이 빠른 구간은 버스 수요가 줄어요.</p>}
         <p><b>규칙:</b> 매일 05시 정산. 목표의 150%를 3일 연속 넘기면 버스 +10대, 3일 연속 목표를 못 채우면 게임 오버예요.</p>
       </div></div>}
 
