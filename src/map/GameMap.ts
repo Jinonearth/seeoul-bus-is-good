@@ -91,6 +91,12 @@ export class GameMap {
           // k = 지금 기다리는 사람 ÷ 평소 (실시간, 면적이 k배)
           'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 8, ['*', ['get', 'r'], ['sqrt', ['coalesce', ['feature-state', 'k'], 1]], k(8)], 16, ['*', ['get', 'r'], ['sqrt', ['coalesce', ['feature-state', 'k'], 1]], k(16)]] } });
     }
+    // 지하철: 노선색을 회색 쪽으로 흐리게 한 가는 선 + 역 눈금 (줌 11부터, 버스 노선 아래). 버스가 겨루는 상대
+    const mute = (hex: string) => { const n = parseInt(hex.slice(1), 16), g = 0x9A, k = 0.45; const ch = (v: number) => Math.round(v * k + g * (1 - k)); return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`; };
+    m.addSource('subway', { type: 'geojson', data: fc(this.dm.sub.lines.flatMap(l => l.s.map(seg => ({ type: 'Feature' as const, properties: { c: mute(l.c) }, geometry: { type: 'LineString' as const, coordinates: seg } })))) });
+    m.addSource('subway-st', { type: 'geojson', data: fc(this.dm.sub.st.map(([, x, y]) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'Point' as const, coordinates: [x, y] } }))) });
+    m.addLayer({ id: 'subway', type: 'line', source: 'subway', minzoom: 11, layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.2, 15, 3], 'line-opacity': 0.8 } });
+    m.addLayer({ id: 'subway-st', type: 'circle', source: 'subway-st', minzoom: 11, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 1.8, 15, 4], 'circle-color': '#FFFFFF', 'circle-stroke-color': '#8A867C', 'circle-stroke-width': 1.2 } });
     m.addSource('sel', { type: 'geojson', data: fc() });
     m.addLayer({ id: 'sel', type: 'line', source: 'sel', paint: { 'line-color': INK, 'line-width': 3 } });
     // 수요 흐름: 나가는 = 파랑 실선, 들어오는 = 주황 점선

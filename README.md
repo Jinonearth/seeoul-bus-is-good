@@ -23,7 +23,7 @@ npm run build    # dist/
 - 버스는 정류장마다 타고 내리는 사람 수만큼 정차(15초 + 1명당 약 2초)
 - 수요는 시간대 5구간(출근 6–9, 낮 9–17, 퇴근 17–20, 저녁 20–24, 심야 0–6)마다 다름
 
-규칙 값은 `src/game/model.ts`의 `RULES`, 수요 보정은 `CAPTURE`.
+규칙 값은 `src/game/model.ts`의 `RULES`, 수요 보정은 `CAPTURE_BASE`. 정류장 쌍마다 버스 시간(걷기 + 배차간격/2 + 차 안)과 지하철 시간(걷기 + 기다림 3분 + 역↔역 + 걷기)을 견줘 버스 몫 = 1 / (1 + e^(0.12 × (버스 − 지하철)))을 곱해요.
 
 ## 구조
 
@@ -45,6 +45,7 @@ pip install -r scripts/requirements.txt
 python3 scripts/build_tiles.py "<[날짜]NODELINKDATA.zip>" <seoul.json> public/tiles/seoul.pmtiles
 python3 scripts/build_game_data.py <seoul.json> <hex_weights.json> <od_dong.json> public/data
 python3 scripts/build_stop_snap.py "<[날짜]NODELINKDATA.zip>" public/data/demand.json public/data   # snap.json + roads.json
+python3 scripts/build_subway.py "<서울시 역사마스터 정보.csv>" public/data/demand.json public/data/subway.json
 node scripts/build_seed_routes.mjs   # 예시 노선 정류장 → src/game/seeds.ts (도로 데이터를 바꾸면 다시)
 ```
 
@@ -55,3 +56,4 @@ node scripts/build_seed_routes.mjs   # 예시 노선 정류장 → src/game/seed
 - 도로: 국토교통부 표준노드링크 (2026-11-11)
 - 행정동 경계: vuski/admdongkor (CC BY 4.0)
 - 수요: 서울시 TOPIS 대중교통 O/D, 서울 열린데이터광장 정류장 위치·시간대별 승하차
+- 지하철 역: 서울 열린데이터광장 「서울시 역사마스터 정보」(역사_ID·역사명·호선·위도·경도)

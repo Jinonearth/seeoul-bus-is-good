@@ -23,10 +23,13 @@ export type Demand = {
   outOf: Map<number, [number, number][]>;  // A → [[C, 통행]]
   into: Map<number, [number, number][]>;   // C → [[A, 통행]]
   parents: Map<string, Agg>[];             // [res7, res8] 집계
-  unreachable: Set<string>;                // 3칸 안에 정류장을 둘 수 있는 셀이 없는 셀 (산·공항 등)
+  unreachable: Set<string>;
+  sub: Subway;                             // 지하철 (scripts/build_subway.py)                // 3칸 안에 정류장을 둘 수 있는 셀이 없는 셀 (산·공항 등)
   total: number;
 };
 
+// 지하철: 서울 역(환승역 하나로), 역↔역 분(0~255), 셀마다 가까운 역 [역, 걷는 분, 역, 걷는 분], 그리기용 노선 선분
+export type Subway = { st: [string, number, number][]; N: number; m: Uint8Array; cell: number[][]; lines: { n: string; c: string; s: [number, number][][] }[] };
 export type Agg = { id: string; lat: number; lng: number; O: number[]; D: number[]; Ou: number[] };
 
 export const key = (a: number, c: number) => a * 1000 + c;
@@ -39,11 +42,13 @@ export const snapInfo = (id: string) => SNAP.get(id);
 export const snapped = (id: string): [number, number] => { const p = SNAP.get(id)?.[0]; if (p) return [p[0], p[1]]; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
 
 export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Demand> {
-  const [dem, flat, snap] = await Promise.all([
+  const [dem, flat, snap, subj] = await Promise.all([
     fetch(`${base}data/demand.json`).then(r => r.json()),
     fetch(`${base}data/od.json`).then(r => r.json()) as Promise<number[]>,
     fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, Cand[]>>,
+    fetch(`${base}data/subway.json`).then(r => r.json()) as Promise<{ st: [string, number, number][]; m: number[]; cell: number[][]; lines: Subway['lines'] }>,
   ]);
+  const sub: Subway = { st: subj.st, N: subj.st.length, m: Uint8Array.from(subj.m), cell: subj.cell, lines: subj.lines };
   SNAP.clear(); for (const id in snap) SNAP.set(id, snap[id]);
   const od = new Map<number, number>(), outOf = new Map<number, [number, number][]>(), into = new Map<number, [number, number][]>();
   const nd = dem.dongs.length, dongOut = new Float64Array(nd), dongInBin = Array.from({ length: nd }, () => new Float64Array(NB));
@@ -79,7 +84,7 @@ export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Deman
     }
     return m;
   });
-  return { bins: dem.bins, dongs: dem.dongs, dongShare: dem.dongShare, cells, byId, od, outOf, into, parents, unreachable, total };
+  return { bins: dem.bins, dongs: dem.dongs, dongShare: dem.dongShare, cells, byId, od, outOf, into, parents, unreachable, sub, total };
 }
 
 // 게임 시각(분, 0 = 0시) → 시간대 번호

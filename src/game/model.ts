@@ -22,7 +22,10 @@ export const DWELL_PER = 0.03;     // 1명 타고 내릴 때마다 약 2초
 export const DWELL_EST = 0.4;      // 한 바퀴 시간 계산용 정류장당 평균 정차(분)
 export const BUS_CAP = 75;
 export const CAP_H = BUS_CAP * 3 * 2;   // 버스 한 대 한 시간 정원 = 75인승 × 구간 회전 3 × 양방향
-export const CAPTURE = 0.17;            // 정류장 사이 대중교통 통행 중 이 노선이 가져가는 비율 (지하철·다른 수단 몫 제외, 보정값)
+export const CAPTURE_BASE = 0.32;        // 정류장 사이 대중교통 통행 중 버스로 갈 만한 몫의 상한 (보정값). 실제 몫 = 이 값 × 지하철과 겨룬 버스 비율
+export const BETA = 0.12;               // 지하철과 겨루기: 버스 비율 = 1 / (1 + e^(BETA × (버스 시간 − 지하철 시간))), 분당
+export const WALK_STOP = 5;             // 버스 정류장까지 평균 걷는 시간(분)
+export const SUB_WAIT = 3;              // 지하철 평균 기다림(분)
 export const MIN_GAP = 2;               // 이보다 가까운 정류장 사이(헥사곤 칸 수)는 걸어감
 
 // ── 노선 표기 (색약 고려: 색 + 패턴) ──
@@ -126,7 +129,6 @@ function catchments(dm: Demand, stops: string[]) {
 }
 
 export const cycleOf = (lenKm: number, nVisits: number) => 2 * lenKm / SPEED + nVisits * DWELL_EST;   // 한 바퀴 = 고리 길이 / 속도 + 서는 횟수 × 평균 정차
-export const freqFactor = (headway: number) => Math.min(1, Math.max(0.3, 1.25 - headway / 40));
 
 export function evalRoute(dm: Demand, stops: string[], buses: number, type: RouteType = 'trunk'): Eval {
   const geo = routePath(stops, type === 'circ');
@@ -142,9 +144,13 @@ export function evalRoute(dm: Demand, stops: string[], buses: number, type: Rout
       for (let b = 0; b < NB; b++) { const t = nAC * o[b] * d[b]; demand[b] += t; w[i] += t; w[j] += t; pair[(b * n + i) * n + j] += t; }
     }
   }
-  const f = CAPTURE * freqFactor(headway) * (type === 'circ' ? 0.9 : 1);
-  for (let b = 0; b < NB; b++) demand[b] *= f;
-  for (let x = 0; x < pair.length; x++) pair[x] *= f;
+  // 정류장 쌍마다 버스 시간과 지하철 시간을 견줘 버스 몫을 정해요 (배차간격 효과는 기다림 headway/2로)
+  const share = busShares(dm, stops, geo, headway, type === 'circ');
+  demand.fill(0); w.fill(0);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const f = CAPTURE_BASE * share[i * n + j];
+    for (let b = 0; b < NB; b++) { const x = (b * n + i) * n + j, t = pair[x] * f; pair[x] = t; demand[b] += t; w[i] += t; w[j] += t; }
+  }
   const capH = 60 / headway * CAP_H;
   const carried = demand.map((v, b) => Math.min(v, capH * binHours(dm.bins[b])));
   const W = w.reduce((a, b) => a + b, 0) || 1;
@@ -162,6 +168,28 @@ export function routeNumber(dm: Demand, type: RouteType, stops: string[]) {
 
 export const dongName = (dm: Demand, cell: string) => { const c = dm.byId.get(cell); return c ? dm.dongs[c.dong].n : '서울 밖'; };
 const gusOf = (dm: Demand, stops: string[]) => [...new Set(stops.map(s => guName(dm, s)).filter(Boolean))];
+// 정류장 i → j 버스 몫 (n×n). 버스 시간 = 걷기 + 배차간격/2 + 차 안(고리 위 거리 ÷ 속도 + 사이 정류장 정차),
+// 지하철 시간 = 정류장 셀에서 가까운 역까지 걷기 + 기다림 + 역↔역 + 내린 역에서 걷기 (두 셀 다 걸어갈 역이 있을 때만)
+export function busShares(dm: Demand, stops: string[], geo: { visits: { s: number; i: number }[]; lenKm: number }, headway: number, circ: boolean) {
+  const n = stops.length, out = new Float64Array(n * n).fill(1), V = geo.visits, len = V.length, L = 2 * geo.lenKm;
+  if (n < 2 || !len) return out;
+  const S = dm.sub, near = stops.map(s => S.cell[dm.byId.get(s)?.i ?? -1] ?? []);
+  const kOut = (i: number) => i, kIn = (i: number) => (i === n - 1 ? n - 1 : (2 * n - 2 - i) % len);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (i === j) continue;
+    const fwd = circ || j > i, ki = fwd ? kOut(i) : kIn(i), kj = fwd ? kOut(j) : kIn(j);
+    if (ki >= len || kj >= len) continue;
+    const ds = ((V[kj].s - V[ki].s) % L + L) % L, mid = ((kj - ki + len) % len) - 1;
+    const tBus = WALK_STOP + headway / 2 + ds / SPEED + Math.max(0, mid) * DWELL_EST;
+    let tSub = Infinity; const a = near[i], b = near[j];
+    for (let x = 0; x < a.length; x += 2) for (let y = 0; y < b.length; y += 2) {
+      const t = a[x + 1] + SUB_WAIT + S.m[a[x] * S.N + b[y]] + b[y + 1]; if (t < tSub) tSub = t;
+    }
+    out[i * n + j] = 1 / (1 + Math.exp(BETA * (tBus - tSub)));
+  }
+  return out;
+}
+
 // 노선 이름: 순환은 지나는 구(최대 3개, 더 있으면 …), 아니면 출발↔도착
 export const routeName = (r: { type: RouteType; from: string; to: string; gus: string[] }) =>
   r.type === 'circ' ? (r.gus.length > 3 ? `${r.gus.slice(0, 3).join('·')}…` : r.gus.join('·')) : `${r.from}↔${r.to}`;
