@@ -64,7 +64,8 @@ export class GameMap {
       dragRotate: false, pitchWithRotate: false, touchPitch: false,
     });
     this.map.touchZoomRotate.disableRotation();
-    this.ready = new Promise(res => this.map.once('load', () => { this.addLayers(); this.isReady = true; res(); }));
+    this.ready = new Promise(res => this.map.once('load', () => { this.addLayers(); this.isReady = true; this.foldAttrib(); res(); }));
+    this.map.on('zoom', () => { if (this.flows.length) this.drawFlows(); });
     this.map.on('click', e => {
       const pad = matchMedia('(pointer: coarse)').matches ? 22 : 8;
       const hit = this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['route-hit'] });
@@ -94,7 +95,7 @@ export class GameMap {
     m.addLayer({ id: 'sel', type: 'line', source: 'sel', paint: { 'line-color': INK, 'line-width': 3 } });
     // 수요 흐름: 나가는 = 파랑 실선, 들어오는 = 주황 점선
     m.addSource('flows', { type: 'geojson', data: fc() });
-    m.addLayer({ id: 'flow-out', type: 'line', source: 'flows', filter: ['all', ['==', ['get', 'out'], true], ['==', ['geometry-type'], 'LineString']], layout: { 'line-cap': 'round' },
+    m.addLayer({ id: 'flow-out', type: 'line', source: 'flows', filter: ['all', ['==', ['get', 'out'], true], ['==', ['geometry-type'], 'LineString']], layout: { 'line-cap': 'butt' },
       paint: { 'line-color': '#0072B2', 'line-opacity': ['get', 'a'], 'line-width': ['get', 'w'] } });
     m.addLayer({ id: 'flow-in', type: 'line', source: 'flows', filter: ['all', ['==', ['get', 'out'], false], ['==', ['geometry-type'], 'LineString']],
       paint: { 'line-color': '#D55E00', 'line-opacity': ['get', 'a'], 'line-width': ['get', 'w'], 'line-dasharray': [1.4, 0.8] } });
@@ -219,22 +220,36 @@ export class GameMap {
     (this.map.getSource('sel') as GeoJSONSource).setData(fc(cell ? [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [cellToBoundary(cell, true)] } }] : []));
   }
 
-  setFlows(flows: Flow[]) {
-    const vmax = Math.max(1, ...flows.map(f => f.v)), feats: GeoJSON.Feature[] = [];
-    for (const f of flows) {
-      const rel = Math.pow(f.v / vmax, 1.7), w = 1.2 + 15 * rel, a = 0.4 + 0.55 * rel;
-      // 살짝 휜 곡선, 끝에 화살촉
-      const [ax, ay] = f.from, [bx, by] = f.to, mx = (ax + bx) / 2 - (by - ay) * 0.2, my = (ay + by) / 2 + (bx - ax) * 0.2;
-      const pts: [number, number][] = [];
-      for (let i = 0; i <= 20; i++) { const t = i / 20 * 0.92; pts.push([(1 - t) ** 2 * ax + 2 * (1 - t) * t * mx + t * t * bx, (1 - t) ** 2 * ay + 2 * (1 - t) * t * my + t * t * by]); }
-      feats.push({ type: 'Feature', properties: { out: f.out, w, a }, geometry: { type: 'LineString', coordinates: pts } });
-      const e = pts[pts.length - 1], p = pts[pts.length - 2], dx = e[0] - p[0], dy = e[1] - p[1], L = Math.hypot(dx, dy) || 1;
-      const s = this.pxToDeg(6 + w * 1.6), ux = dx / L, uy = dy / L, tip: [number, number] = [bx - ux * s * 0.2, by - uy * s * 0.2];
-      feats.push({ type: 'Feature', properties: { out: f.out, a: Math.min(1, a + 0.15) }, geometry: { type: 'Polygon', coordinates: [[tip, [e[0] - uy * s * 0.55, e[1] + ux * s * 0.55], [e[0] + uy * s * 0.55, e[1] - ux * s * 0.55], tip]] } });
-    }
-    (this.map.getSource('flows') as GeoJSONSource).setData(fc(feats));
+  // 지도 출처(ⓘ)는 처음엔 접어 둬요 (펼친 글이 위 상태 막대 아래를 가려서)
+  private foldAttrib() {
+    const a = this.map.getContainer().querySelector('.maplibregl-ctrl-attrib');
+    a?.classList.remove('maplibregl-compact-show'); a?.removeAttribute('open');
   }
-  private pxToDeg(px: number) { const z = this.map.getZoom(); return px * 360 / (512 * 2 ** z); }
+  // 수요 흐름 화살표: 화면(px)에서 만들어요. 화살촉 밑변 = 선 굵기, 길이 = 굵기 × 1.5, 선은 화살촉 밑변에서 끝나요.
+  // 줌이 바뀌면 다시 그려서 어느 줌에서나 같은 모양
+  private flows: Flow[] = [];
+  setFlows(flows: Flow[]) { this.flows = flows; this.drawFlows(); }
+  private drawFlows() {
+    const flows = this.flows, m = this.map;
+    const vmax = Math.max(1, ...flows.map(f => f.v)), feats: GeoJSON.Feature[] = [];
+    const un = (x: number, y: number): [number, number] => { const q = m.unproject([x, y]); return [q.lng, q.lat]; };
+    for (const f of flows) {
+      const rel = Math.pow(f.v / vmax, 1.7), w = Math.round((2 + 12 * rel) * 2) / 2, a = 0.4 + 0.55 * rel;
+      // 살짝 휜 곡선 (화면 좌표), 끝점은 셀 중심 조금 앞
+      const A = m.project(f.from), B = m.project(f.to), mx = (A.x + B.x) / 2 - (B.y - A.y) * 0.2, my = (A.y + B.y) / 2 + (B.x - A.x) * 0.2;
+      const P: [number, number][] = [];
+      for (let i = 0; i <= 32; i++) { const t = i / 32 * 0.94; P.push([(1 - t) ** 2 * A.x + 2 * (1 - t) * t * mx + t * t * B.x, (1 - t) ** 2 * A.y + 2 * (1 - t) * t * my + t * t * B.y]); }
+      // 끝에서 화살촉 길이만큼 잘라 선의 끝(밑변)을 찾기
+      const head = w * 1.5; let left = head, k = P.length - 1, base: [number, number] = P[k];
+      while (k > 0) { const d = Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]); if (d >= left) { const t = left / d; base = [P[k][0] + (P[k - 1][0] - P[k][0]) * t, P[k][1] + (P[k - 1][1] - P[k][1]) * t]; break; } left -= d; k--; }
+      const tip = P[P.length - 1], shaft = [...P.slice(0, k), base];
+      if (shaft.length < 2) continue;
+      const dx = tip[0] - base[0], dy = tip[1] - base[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L * w / 2, ny = dx / L * w / 2;
+      feats.push({ type: 'Feature', properties: { out: f.out, w, a }, geometry: { type: 'LineString', coordinates: shaft.map(([x, y]) => un(x, y)) } });
+      feats.push({ type: 'Feature', properties: { out: f.out, a }, geometry: { type: 'Polygon', coordinates: [[un(...tip), un(base[0] + nx, base[1] + ny), un(base[0] - nx, base[1] - ny), un(...tip)]] } });
+    }
+    (m.getSource('flows') as GeoJSONSource | undefined)?.setData(fc(feats));
+  }
 
   // 줌아웃용 단순한 선: 가는 길 도로를 LO_TOL_M로 줄인 선 하나. 버스와 정류장은 가는 길 비율대로 그 위에
   private lo = new Map<number, { line: [number, number][]; cum: number[]; out: number }>();
