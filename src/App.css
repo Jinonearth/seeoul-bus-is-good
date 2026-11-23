@@ -2,8 +2,8 @@
    인쇄물 느낌: 각진 모서리, 굵은 먹 괘선 */
 .loading{height:100%;display:grid;place-items:center;font-size:15px;color:var(--muted)}
 #stage{height:100%;display:grid;place-items:center}
-#app{position:relative;width:min(430px,100%);height:min(932px,100%);overflow:hidden;background:var(--ground);user-select:none;-webkit-user-select:none;--bar-h:96px;--top-h:60px}
-@media (min-width:520px) and (min-height:700px){#app{border:2px solid var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.35)}}
+#app{position:relative;width:100%;height:100%;overflow:hidden;background:var(--ground);user-select:none;-webkit-user-select:none;--bar-h:96px;--top-h:60px}
+/* 큰 화면: 지도는 화면 가득, 위·아래 상자는 가운데에 최대 --box-max 너비 */
 #map{position:absolute;inset:0}
 #map.drawing .maplibregl-canvas{cursor:crosshair}
 .box{background:var(--paper);border:2px solid var(--ink)}
@@ -354,3 +354,30 @@ dl.icons dd{margin:0}
 .popup .ph .badge{height:20px;display:block}
 .popup .pmeter{display:block}
 .popup .pm{display:flex}
+
+/* ── 화면 크기에 맞추기: 폰 세로(360–430px)가 기본. 패드·데스크톱은 상자 높이·여백·글자를 조금 키우고(1.15–1.25배),
+   위·아래 상자는 가운데에 최대 600px. 가로 화면도 아래 가운데에 두어 지도를 가장 넓게 남겨요 ── */
+#app{--box-max:600px;--edge:max(var(--side), calc(50% - var(--box-max) / 2))}
+#topbar,#bottom{left:var(--edge);right:var(--edge)}
+.toasts{max-width:min(560px,calc(100% - 40px))}
+@media (min-width:768px){
+  #app{--strip-h:56px;--side:16px;--box-max:620px}
+  #topbar,#bottom{font-size:15px}
+  .clock{font-size:20px}
+  #bottom .clock{font-size:20px}
+  #bottom .when .day{font-size:16px}
+  #topbar .money .v{font-size:17px}
+  #routebar .chip{min-height:42px}
+  #routebar .chip .n{font-size:17px}
+  .chip .m{font-size:14px}
+  #bottom .seg.speed button{min-width:56px}
+  #bottom .seg.speed svg{transform:scale(1.15)}
+  .zb{width:52px;height:52px}
+  #legend{height:52px}
+  #helpbox{bottom:calc(var(--bar-h) + 16px + 116px + env(safe-area-inset-bottom,0px))}
+  .popup{width:264px;font-size:14px}
+  .popup.wide{width:340px}
+  .popup .pg b,.popup .pt{font-size:14px}
+  .help .box{max-width:440px}
+}
+@media (min-width:1200px){ #app{--box-max:640px} }
