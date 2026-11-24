@@ -3,7 +3,7 @@ import type { StyleSpecification } from 'maplibre-gl';
 
 export const INK = '#1D1D1B', PAPER = '#F3F1EA', GROUND = '#ECE8DC', WATER = '#BCD6E6', PINK = '#FF48B0';
 
-export const ROAD = '#B9B5AC', ROAD_EDGE = '#9E9A90';   // 도로는 모두 한 색, 크기는 너비로만
+export const ROAD = '#E2D6B6', ROAD_EDGE = '#A8946C';   // 도로는 모두 한 색(따뜻한 흙길 빛), 크기는 너비로만
 
 export function baseStyle(tilesUrl: string, landUrl: string): StyleSpecification {
   return {
@@ -16,10 +16,19 @@ export function baseStyle(tilesUrl: string, landUrl: string): StyleSpecification
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': GROUND } },
+      // 한강: 옅은 모래 강변 → 물 → 가운데 짙은 물길
+      { id: 'river-bank', type: 'line', source: 'seoul', 'source-layer': 'river',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        // 한강 폭 약 1km를 줌에 맞춰 픽셀로
+        paint: { 'line-color': '#E9DDB4', 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 9, 4.5, 12, 30, 15, 240] } },
       { id: 'river', type: 'line', source: 'seoul', 'source-layer': 'river',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         // 한강 폭 약 1km를 줌에 맞춰 픽셀로
         paint: { 'line-color': WATER, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 9, 3, 12, 22, 15, 180] } },
+      { id: 'river-deep', type: 'line', source: 'seoul', 'source-layer': 'river',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        // 한강 폭 약 1km를 줌에 맞춰 픽셀로
+        paint: { 'line-color': '#8FB6CF', 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 9, 1.2, 12, 9, 15, 70] } },
       // 도로: 아스팔트. 줌 13 아래는 굵게 부풀린 선, 13부터는 방향별 차로를 합친 면(land.pmtiles road_area) + 짙은 가장자리
       { id: 'road-case', type: 'line', source: 'seoul', 'source-layer': 'road', maxzoom: 13,
         filter: ['step', ['zoom'], ['==', ['get', 'class'], 0], 11, ['<=', ['get', 'class'], 1], 12, ['<=', ['get', 'class'], 2], 13, true],

@@ -5,7 +5,7 @@ import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UN
 import { type Demand, stopable, snapped } from '../game/data';
 import { type Route, posAt, BUS_CAP } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
-import { addTerrainPatterns, VARIANTS } from './sprites';
+import { addTerrainPatterns } from './sprites';
 
 export type Flow = { from: [number, number]; to: [number, number]; v: number; out: boolean };
 const HEX_RES = [7, 8, 9] as const;
@@ -17,15 +17,6 @@ const DOT = [0, 0.16, 0.32, 0.48, 0.64, 0.8];
 const LOAD_COLOR = ['', '#009E73', '#009E73', '#F0E442', '#D55E00'];
 // 지하철을 지도에 그릴지 (수요 계산에서 지하철과 겨루는 건 그대로). 지금은 숨겨요
 export const SHOW_SUBWAY = false;
-// 지형: OSM 땅 쓰임이 없는 칸(o)도 정류장을 둘 수 있는 도심이면 집(r), 수요가 아주 큰 곳이면 건물(c)로 채워요
-const busy: Record<number, number> = {};
-function terrainOf(dm: Demand, c: { id: string; O: number[] }, res: number) {
-  const t = dm.terrain[c.id] ?? 'o'; if (t !== 'o') return t;
-  if (busy[res] === undefined) { const list = res === 9 ? dm.cells : [...dm.parents[res === 7 ? 0 : 1].values()]; const v = list.map(x => x.O.reduce((a, b) => a + b, 0)).sort((a, b) => a - b); busy[res] = v[Math.floor(v.length * 0.85)]; }
-  const tot = c.O.reduce((a, b) => a + b, 0);
-  if (tot >= busy[res]) return 'c';
-  return res < 9 || stopable(c.id) ? 'r' : 'o';
-}
 const LO_Z = 13, LO_TOL_M = 300;   // 이 줌 아래에선 노선을 단순한 선 하나로 (Douglas-Peucker 허용 거리)
 const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540;
 const mDist = (a: [number, number], b: [number, number]) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY) / 1000;
@@ -91,14 +82,20 @@ export class GameMap {
     const m = this.map;
     // 헥사곤 지형 타일: 셀마다 바탕색 + 직접 그린 픽셀 그림(나무·집·건물), 도로·강 아래. 타일 사이는 옅은 틈
     addTerrainPatterns(m);
+    // 이어진 그림 지도: 같은 지형 헥사곤을 합쳐 둥글게 다듬은 면(terrain.geojson)에 무늬. 헥사곤 경계는 그림에 안 보여요.
+    // 순서: 가장자리 띠(성긴 나무·덤불) → 숲 아래 벼랑(갈색)·그늘(짙은 초록)을 남쪽으로 살짝 내려 깔아 숲이 솟아 보이게 → 지형 무늬
+    m.addSource('terrain', { type: 'geojson', data: new URL(`${import.meta.env.BASE_URL}data/terrain.geojson`, location.href).href, tolerance: 0.5 });
+    const T = (id: string, filter: unknown, paint: Record<string, unknown>) => m.addLayer({ id, type: 'fill', source: 'terrain', filter: filter as never, paint: paint as never }, 'river-bank');
+    T('terrain-edge', ['==', ['get', 'edge'], 1], { 'fill-pattern': ['concat', 'pat-', ['get', 't'], '-edge'] });
+    T('terrain-cliff', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#7A5634', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 2]], 15, ['literal', [0, 7]]], 'fill-translate-anchor': 'viewport' });
+    T('terrain-cliff-top', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#A57B4C', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 1]], 15, ['literal', [0, 4]]], 'fill-translate-anchor': 'viewport' });
+    T('terrain-shade', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#22401C', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 0.5]], 15, ['literal', [0, 2]]], 'fill-translate-anchor': 'viewport' });
+    T('terrain', ['==', ['get', 'edge'], 0], { 'fill-pattern': ['concat', 'pat-', ['get', 't']] });
     // 헥사곤 (해상도별): 옅은 먹 외곽선 + 핑크 망점
     for (const res of HEX_RES) {
       const [minzoom, maxzoom] = ZRANGE[res];
       m.addSource(`hex${res}`, { type: 'geojson', data: fc() });
       m.addSource(`dot${res}`, { type: 'geojson', data: fc(), promoteId: 'id' });
-      // 지형 타일: 헥사곤마다 픽셀 아트 무늬(종류 × 변형 3), 사이는 옅은 틈. 도로·강 아래
-      m.addLayer({ id: `terrain${res}`, type: 'fill', source: `hex${res}`, minzoom, maxzoom, paint: { 'fill-pattern': ['concat', 'pat-', ['get', 't'], '-', ['get', 'v']] as never, 'fill-opacity': 0.85 } }, 'river');
-      m.addLayer({ id: `terrain${res}-gap`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': '#F4F0E4', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 15, 2.2], 'line-opacity': 0.85 } }, 'river');
       // 노선 그리는 중: 도로가 없어 정류장을 둘 수 없는 셀을 옅은 회색으로
       if (res === 9) m.addLayer({ id: 'hex9-ns', type: 'fill', source: 'hex9', minzoom, maxzoom, filter: ['==', ['get', 'ns'], 1], layout: { visibility: 'none' }, paint: { 'fill-color': INK, 'fill-opacity': 0.14 } });
       m.addLayer({ id: `hex${res}-line`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': INK, 'line-opacity': 0.12, 'line-width': 1 } });
@@ -235,8 +232,7 @@ export class GameMap {
       list.forEach((c, i) => {
         const v = Math.sqrt(Math.min(1, vals[i] / ref));
         const ring = cellToBoundary(c.id, true);
-        const t = terrainOf(dm, c, res);
-        hex.push({ type: 'Feature', properties: { id: c.id, t, v: parseInt(c.id.slice(-6, -3), 16) % VARIANTS, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
+        hex.push({ type: 'Feature', properties: { id: c.id, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
         if (v >= 0.08) { dot.push({ type: 'Feature', properties: { id: c.id, r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } }); live.push(c.id); }
       });
       this.live.set(res, live); this.map.removeFeatureState({ source: `dot${res}` });
