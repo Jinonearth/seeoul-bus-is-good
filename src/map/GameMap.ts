@@ -1,11 +1,10 @@
 // MapLibre 지도와 게임 레이어(헥사곤 수요, 수요 흐름, 노선, 정류장, 버스)
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
-import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS, gridDisk } from 'h3-js';
+import { cellToBoundary, cellToParent, latLngToCell, getHexagonEdgeLengthAvg, UNITS } from 'h3-js';
 import { type Demand, stopable, snapped } from '../game/data';
 import { type Route, posAt, BUS_CAP } from '../game/model';
 import { baseStyle, labelLayers, INK, PAPER, PINK } from './style';
-import { addTerrainPatterns } from './sprites';
 
 export type Flow = { from: [number, number]; to: [number, number]; v: number; out: boolean };
 const HEX_RES = [7, 8, 9] as const;
@@ -17,19 +16,6 @@ const DOT = [0, 0.16, 0.32, 0.48, 0.64, 0.8];
 const LOAD_COLOR = ['', '#009E73', '#009E73', '#F0E442', '#D55E00'];
 // 지하철을 지도에 그릴지 (수요 계산에서 지하철과 겨루는 건 그대로). 지금은 숨겨요
 export const SHOW_SUBWAY = false;
-// 지형: terrain.json (OSM 땅 쓰임). 땅 쓰임이 없는 칸은 정류장을 둘 수 있는 도심이면 주거, 수요 상위 15%면 상업.
-// 이웃 여섯 칸이 모두 숲인 숲 칸은 산(m)으로 (남산·북한산·관악산 같은 큰 숲 한가운데)
-const busy: Record<number, number> = {};
-function terrainOf(dm: Demand, c: { id: string; O: number[] }, res: number): string {
-  const raw = (id: string) => dm.terrain[id] ?? 'o';
-  let t = raw(c.id);
-  if (t === 'o') {
-    if (busy[res] === undefined) { const list = res === 9 ? dm.cells : [...dm.parents[res === 7 ? 0 : 1].values()]; const v = list.map(x => x.O.reduce((a, b) => a + b, 0)).sort((a, b) => a - b); busy[res] = v[Math.floor(v.length * 0.85)]; }
-    if (c.O.reduce((a, b) => a + b, 0) >= busy[res]) t = 'c'; else if (res < 9 || stopable(c.id)) t = 'r';
-  }
-  if (t === 'f' && gridDisk(c.id, 1).every(n => raw(n) === 'f')) t = 'm';
-  return t;
-}
 const LO_Z = 13, LO_TOL_M = 300;   // 이 줌 아래에선 노선을 단순한 선 하나로 (Douglas-Peucker 허용 거리)
 const KX = 111320 * Math.cos(37.55 * Math.PI / 180), KY = 110540;
 const mDist = (a: [number, number], b: [number, number]) => Math.hypot((b[0] - a[0]) * KX, (b[1] - a[1]) * KY) / 1000;
@@ -94,15 +80,11 @@ export class GameMap {
   private addLayers() {
     const m = this.map;
     // 헥사곤 지형 타일: 셀마다 바탕색 + 직접 그린 픽셀 그림(나무·집·건물), 도로·강 아래. 타일 사이는 옅은 틈
-    addTerrainPatterns(m);
     // 헥사곤 (해상도별): 옅은 먹 외곽선 + 핑크 망점
     for (const res of HEX_RES) {
       const [minzoom, maxzoom] = ZRANGE[res];
       m.addSource(`hex${res}`, { type: 'geojson', data: fc() });
       m.addSource(`dot${res}`, { type: 'geojson', data: fc(), promoteId: 'id' });
-      // 판 바탕: 헥사곤마다 지형 색 타일 + 옅은 손그림 무늬, 가는 헥사곤 테두리 (도로·강 아래)
-      m.addLayer({ id: `terrain${res}`, type: 'fill', source: `hex${res}`, minzoom, maxzoom, paint: { 'fill-pattern': ['concat', 'pat-', ['get', 't']] as never } }, 'river');
-      m.addLayer({ id: `terrain${res}-edge`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': '#8C8574', 'line-opacity': 0.28, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 16, 1.4] } }, 'river');
       // 노선 그리는 중: 도로가 없어 정류장을 둘 수 없는 셀을 옅은 회색으로
       if (res === 9) m.addLayer({ id: 'hex9-ns', type: 'fill', source: 'hex9', minzoom, maxzoom, filter: ['==', ['get', 'ns'], 1], layout: { visibility: 'none' }, paint: { 'fill-color': INK, 'fill-opacity': 0.14 } });
       m.addLayer({ id: `hex${res}-line`, type: 'line', source: `hex${res}`, minzoom, maxzoom, paint: { 'line-color': INK, 'line-opacity': 0.12, 'line-width': 1 } });
@@ -239,7 +221,7 @@ export class GameMap {
       list.forEach((c, i) => {
         const v = Math.sqrt(Math.min(1, vals[i] / ref));
         const ring = cellToBoundary(c.id, true);
-        hex.push({ type: 'Feature', properties: { id: c.id, t: terrainOf(dm, c, res), ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
+        hex.push({ type: 'Feature', properties: { id: c.id, ns: res === 9 && !stopable(c.id) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [ring] } });
         if (v >= 0.08) { dot.push({ type: 'Feature', properties: { id: c.id, r: DOT[Math.min(5, 1 + Math.floor(v * 5))] }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] } }); live.push(c.id); }
       });
       this.live.set(res, live); this.map.removeFeatureState({ source: `dot${res}` });

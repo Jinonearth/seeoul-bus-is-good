@@ -25,7 +25,6 @@ export type Demand = {
   parents: Map<string, Agg>[];             // [res7, res8] 집계
   unreachable: Set<string>;
   sub: Subway;                             // 지하철 (scripts/build_subway.py)
-  terrain: Record<string, string>;         // 셀(res7·8·9) → 지형 f 숲, g 녹지, r 주거, c 상업, i 공업, o 기타 (scripts/build_terrain.py)                // 3칸 안에 정류장을 둘 수 있는 셀이 없는 셀 (산·공항 등)
   total: number;
 };
 
@@ -43,12 +42,11 @@ export const snapInfo = (id: string) => SNAP.get(id);
 export const snapped = (id: string): [number, number] => { const p = SNAP.get(id)?.[0]; if (p) return [p[0], p[1]]; const [lat, lng] = cellToLatLng(id); return [lng, lat]; };
 
 export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Demand> {
-  const [dem, flat, snap, subj, terrain] = await Promise.all([
+  const [dem, flat, snap, subj] = await Promise.all([
     fetch(`${base}data/demand.json`).then(r => r.json()),
     fetch(`${base}data/od.json`).then(r => r.json()) as Promise<number[]>,
     fetch(`${base}data/snap.json`).then(r => r.json()) as Promise<Record<string, Cand[]>>,
     fetch(`${base}data/subway.json`).then(r => r.json()) as Promise<{ st: [string, number, number][]; m: number[]; cell: number[][]; lines: Subway['lines'] }>,
-    fetch(`${base}data/terrain.json`).then(r => r.json()) as Promise<Record<string, string>>,
   ]);
   const sub: Subway = { st: subj.st, N: subj.st.length, m: Uint8Array.from(subj.m), cell: subj.cell, lines: subj.lines };
   SNAP.clear(); for (const id in snap) SNAP.set(id, snap[id]);
@@ -86,7 +84,7 @@ export async function loadDemand(base = import.meta.env.BASE_URL): Promise<Deman
     }
     return m;
   });
-  return { bins: dem.bins, dongs: dem.dongs, dongShare: dem.dongShare, cells, byId, od, outOf, into, parents, unreachable, sub, terrain, total };
+  return { bins: dem.bins, dongs: dem.dongs, dongShare: dem.dongShare, cells, byId, od, outOf, into, parents, unreachable, sub, total };
 }
 
 // 게임 시각(분, 0 = 0시) → 시간대 번호
