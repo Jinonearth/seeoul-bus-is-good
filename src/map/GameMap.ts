@@ -62,7 +62,7 @@ export class GameMap {
     const base = import.meta.env.BASE_URL;
     const tiles = new URL(`${base}tiles/seoul.pmtiles`, location.href).href, land = new URL(`${base}tiles/land.pmtiles`, location.href).href;
     this.map = new maplibregl.Map({
-      container: el, style: baseStyle(tiles, land), center: [126.99, 37.56], zoom: 10.2, minZoom: 9.3, maxZoom: 15.5,
+      container: el, style: baseStyle(tiles, land), center: [126.99, 37.56], zoom: 10.2, minZoom: 9.3, maxZoom: 16.5,
       maxBounds: [[126.6, 37.35], [127.35, 37.75]], attributionControl: { compact: true },
       localIdeographFontFamily: "'Gothic A1', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif",
       dragRotate: false, pitchWithRotate: false, touchPitch: false,
@@ -86,11 +86,17 @@ export class GameMap {
     // 순서: 가장자리 띠(성긴 나무·덤불) → 숲 아래 벼랑(갈색)·그늘(짙은 초록)을 남쪽으로 살짝 내려 깔아 숲이 솟아 보이게 → 지형 무늬
     m.addSource('terrain', { type: 'geojson', data: new URL(`${import.meta.env.BASE_URL}data/terrain.geojson`, location.href).href, tolerance: 0.5 });
     const T = (id: string, filter: unknown, paint: Record<string, unknown>) => m.addLayer({ id, type: 'fill', source: 'terrain', filter: filter as never, paint: paint as never }, 'river-bank');
-    T('terrain-edge', ['==', ['get', 'edge'], 1], { 'fill-pattern': ['concat', 'pat-', ['get', 't'], '-edge'] });
-    T('terrain-cliff', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#7A5634', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 2]], 15, ['literal', [0, 7]]], 'fill-translate-anchor': 'viewport' });
-    T('terrain-cliff-top', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#A57B4C', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 1]], 15, ['literal', [0, 4]]], 'fill-translate-anchor': 'viewport' });
-    T('terrain-shade', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#22401C', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 0.5]], 15, ['literal', [0, 2]]], 'fill-translate-anchor': 'viewport' });
-    T('terrain', ['==', ['get', 'edge'], 0], { 'fill-pattern': ['concat', 'pat-', ['get', 't']] });
+    // 무늬 이름: 멀리서 = pat-{지형}-s (전략 지도 기호), 가까이 = pat-{지형}-z14·z15·z16 (실제 크기). 13.5–14 사이에 서로 겹쳐 바뀌어요
+    const key = ['case', ['==', ['get', 'edge'], 1], ['concat', ['get', 't'], '-edge'], ['get', 't']];
+    const near = ['step', ['zoom'], ['concat', 'pat-', key, '-z14'], 14.6, ['concat', 'pat-', key, '-z15'], 15.6, ['concat', 'pat-', key, '-z16']];
+    const farOp = ['interpolate', ['linear'], ['zoom'], 13.5, 1, 14, 0], nearOp = ['interpolate', ['linear'], ['zoom'], 13.5, 0, 14, 1];
+    T('terrain-far-edge', ['==', ['get', 'edge'], 1], { 'fill-pattern': ['concat', 'pat-', key, '-s'], 'fill-opacity': farOp });
+    T('terrain-edge', ['==', ['get', 'edge'], 1], { 'fill-pattern': near, 'fill-opacity': nearOp });
+    T('terrain-cliff', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#7A5634', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 2]], 15, ['literal', [0, 7]]], 'fill-translate-anchor': 'viewport' , 'fill-opacity': nearOp });
+    T('terrain-cliff-top', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#A57B4C', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 1]], 15, ['literal', [0, 4]]], 'fill-translate-anchor': 'viewport' , 'fill-opacity': nearOp });
+    T('terrain-shade', ['all', ['==', ['get', 'edge'], 0], ['==', ['get', 't'], 'f']], { 'fill-color': '#22401C', 'fill-translate': ['interpolate', ['linear'], ['zoom'], 11, ['literal', [0, 0.5]], 15, ['literal', [0, 2]]], 'fill-translate-anchor': 'viewport' , 'fill-opacity': nearOp });
+    T('terrain', ['==', ['get', 'edge'], 0], { 'fill-pattern': near, 'fill-opacity': nearOp });
+    T('terrain-far', ['==', ['get', 'edge'], 0], { 'fill-pattern': ['concat', 'pat-', key, '-s'], 'fill-opacity': farOp });   // 멀리서: 납작한 색 + 기호 (벼랑 그림자 없이)
     // 헥사곤 (해상도별): 옅은 먹 외곽선 + 핑크 망점
     for (const res of HEX_RES) {
       const [minzoom, maxzoom] = ZRANGE[res];

@@ -36,30 +36,6 @@ function scatter(r: () => number, n: number, gap: number, around?: [number, numb
 
 // ── 나무: 둥근 수관 덩어리 (왼쪽 위 빛, 오른쪽 아래 짙음) ──
 const P = { o: '#24461F', d: '#36672C', m: '#4C8A3A', l: '#68A84C', h: '#93CC6B', t: '#6B4A2B', u: '#47311D', s: 'rgba(20,40,18,0.35)' };
-const TREE = [
-  '   oooooo   ',
-  '  ollhhmmo  ',
-  ' olhhllmmdo ',
-  'olhllmmmmddo',
-  'olllmmmmmddo',
-  'olmmmmmmdddo',
-  'odmmmmmddddo',
-  ' oddmmdddddos',
-  '  oodddddoos',
-  '    ootuoo ss',
-  '     utu  ss',
-];
-const TREE_S = [
-  '  oooo  ',
-  ' olhlmo ',
-  'olhlmmdo',
-  'olmmmddo',
-  'odmmdddos',
-  ' oodddoss',
-  '   tu ss'];
-const BUSH = [' oooo ', 'olhmdo', 'odmmdos', ' ooooss'];
-const TUFT = [' g g ', 'gG gG', ' GgG '];
-const FLOWER = [' p ', 'pyp', ' p '];
 export function path(pen: Pen, r: () => number, x0: number, y0: number, len: number, horiz: boolean) {
   let x = x0, y = y0;
   for (let i = 0; i < len; i++) {
@@ -70,21 +46,6 @@ export function path(pen: Pen, r: () => number, x0: number, y0: number, len: num
 const GRASS = ['#7FB451', '#8DC05C', '#73A847', '#9ACB68'];
 
 // ── 지형 무늬 ──
-const forestCore = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#3E7330', ['#356629', '#4A8238'], 300);
-  for (const [x, y] of scatter(r, 140, 7)) { if (r() < 0.75) sprite(pen, x - 6, y - 6, TREE, P); else sprite(pen, x - 4, y - 4, TREE_S, P); }
-};
-const forestEdge = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#86BA57', GRASS, 360);
-  for (const [x, y] of scatter(r, 14, 18)) sprite(pen, x - 6, y - 6, r() < 0.5 ? TREE : TREE_S, P);
-  for (const [x, y] of scatter(r, 20, 12)) sprite(pen, x - 2, y - 1, TUFT, { g: '#6A9F43', G: '#55863A' });
-};
-const park = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#8EC25E', GRASS, 420);
-  for (const [x, y] of scatter(r, 9, 22)) sprite(pen, x - 6, y - 6, TREE, P);
-  for (const [x, y] of scatter(r, 10, 14)) sprite(pen, x - 3, y - 2, BUSH, P);
-  for (const [x, y] of scatter(r, 30, 8)) sprite(pen, x - 1, y - 1, FLOWER, { p: r() < 0.5 ? '#F29BB9' : '#F7F2E6', y: '#F2C94E' });
-};
 // ── 3/4로 본 건물: 위는 평평한 옥상, 아래는 층수만큼 높은 앞 벽(창 격자). 높을수록 앞 벽이 길고 그림자도 길어요 ──
 // x, y = 옥상 왼쪽 위, w = 너비, d = 옥상 깊이, h = 앞 벽 높이(px). 그림자는 오른쪽(동)과 아래(남)로
 type Bld = { roof: string; roofHi: string; edge: string; wall: string; wallSh: string; win: string; winHi?: string };
@@ -116,61 +77,114 @@ const TOWER: Bld[] = [
   { roof: '#CCCAC4', roofHi: '#E3E1DC', edge: '#55606A', wall: '#9AAFBD', wallSh: '#7790A1', win: '#C2D5E0', winHi: '#E2EEF4' },
   { roof: '#D2CFC8', roofHi: '#E6E3DD', edge: '#5C5850', wall: '#D9D2C4', wallSh: '#BCB3A2', win: '#8AA2B2' },
 ];
-function parking(pen: Pen, x: number, y: number, w: number) {
-  pen('#A9A79F')(x, y, w, 7); pen('#B9B7AF')(x, y, w, 1);
-  for (let i = x + 2; i < x + w - 1; i += 4) pen('#E8E6DE')(i, y + 1, 1, 5);
-}
-const residential = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#93C063', GRASS, 300);
-  // 아파트 단지: 긴 판상형 동이 나란히 (앞 벽 높이 = 층수), 사이에 녹지·주차장
-  for (const row of [0, 1]) {
-    const y0 = 6 + row * 40;
-    for (const x0 of [4, 52]) {
-      const w = 38 + Math.floor(r() * 6), h = 14 + Math.floor(r() * 8), c = APT[Math.floor(r() * APT.length)];
-      building(pen, x0, y0, w, 6, h, c);
-      if (r() < 0.6) parking(pen, x0, y0 + 6 + h + 4, w - 6);
-      else for (const [tx, ty] of scatter(r, 3, 10, [[x0 + w / 2, y0 + 6 + h + 8]], 14)) sprite(pen, tx - 4, ty - 4, TREE_S, P);
-    }
-  }
-  // 빌라 골목: 3~4층 네모난 건물이 조금씩 모여요
-  for (const [x, y] of scatter(r, 6, 17, [[30, 100], [92, 100]], 18)) building(pen, x - 6, y - 8, 11 + Math.floor(r() * 3), 5, 7 + Math.floor(r() * 3), VILLA[Math.floor(r() * VILLA.length)]);
-  for (const [x, y] of scatter(r, 6, 16)) sprite(pen, x - 4, y - 4, TREE_S, P);
-};
-const commercial = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#CFC8B8', ['#C3BCAC', '#D9D3C5'], 260);
-  for (let i = 0; i < T; i += 16) { pen('#C2BBAA')(i, 0, 1, T); pen('#C2BBAA')(0, i, T, 1); }   // 보도블록
-  // 업무 빌딩: 큰 바닥, 유리 앞 벽이 높고 그림자도 길어요. 사이사이 작은 광장과 나무
-  const spots: [number, number][] = [[6, 4], [52, 2], [90, 8], [14, 62], [64, 58], [100, 70]];
-  for (const [x, y] of spots) { if (r() < 0.12) continue; const t = TOWER[Math.floor(r() * TOWER.length)], glass = t !== TOWER[2]; building(pen, x, y, 20 + Math.floor(r() * 10), 9, 20 + Math.floor(r() * 16), t, glass); }
-  for (const [x, y] of scatter(r, 7, 18)) sprite(pen, x - 4, y - 4, TREE_S, P);
-};
-const industrial = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#BFC3BC', ['#B1B5AE', '#CBCFC8'], 220);
-  for (let row = 0; row < 4; row++) {
-    const y = row * 32 + 6, off = Math.floor(r() * 40);
-    for (const x0 of [off, off + 64]) {
-      if (r() < 0.2) continue;
-      const blue = r() < 0.5, [L, M, Dk, E] = blue ? ['#A4BAC4', '#8AA2AE', '#6F8794', '#4F6470'] : ['#A9C0A6', '#8EA690', '#728A74', '#526A55'];
-      pen('rgba(30,40,40,0.28)')(x0 + 2, y + 2, 36, 14); pen(E)(x0, y, 36, 14); pen(M)(x0 + 1, y + 1, 34, 8);
-      for (let i = 1; i < 35; i += 2) pen(L)(x0 + i, y + 1, 1, 8);
-      pen(Dk)(x0 + 1, y + 9, 34, 4); pen('#D6D1C4')(x0 + 1, y + 9, 34, 1);   // 앞 벽
-    }
-  }
-};
-const open = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#A3C873', GRASS, 300);
-  for (const [x, y] of scatter(r, 6, 30)) sprite(pen, x - 6, y - 6, TREE, P);
-  for (const [x, y] of scatter(r, 18, 14)) sprite(pen, x - 2, y - 1, TUFT, { g: '#6A9F43', G: '#55863A' });
-};
-const softEdge = (pen: Pen, r: () => number) => {   // 다른 지형 둘레 띠: 풀밭에 덤불 조금
-  ground(pen, r, '#93C063', GRASS, 340);
-  for (const [x, y] of scatter(r, 8, 22)) sprite(pen, x - 3, y - 2, BUSH, P);
-};
 
-const DRAW: Record<string, (pen: Pen, r: () => number) => void> = {
-  f: forestCore, 'f-edge': forestEdge, g: park, 'g-edge': softEdge, r: residential, 'r-edge': softEdge,
-  c: commercial, 'c-edge': softEdge, i: industrial, 'i-edge': softEdge, o: open, 'o-edge': open,
-};
+// ════ 줌별 무늬 ════
+// 멀리서(줌 11–13.5): 전략 지도처럼 납작한 색 면 위에 작은 기호(나무·건물·풀)를 고르고 촘촘하게. 기호 크기는 화면에서 늘 같아요.
+// 가까이(줌 14·15·16): 실제 크기 픽셀 아트. 아파트 60–100 m, 빌라 15 m, 업무 빌딩 30–60 m, 나무 수관 7 m를
+// 그 줌의 미터/픽셀(MPP)로 바꿔 그려서, 줌을 당기면 지도처럼 커지고 멀어지면 촘촘해져요. (fill-pattern은 화면 픽셀 고정이라 줌마다 따로 구워요)
+export const MPP: Record<number, number> = { 14: 7.58, 15: 3.79, 16: 1.89 };   // 위도 37.55° 미터/CSS px
+const KINDS = ['f', 'f-edge', 'g', 'g-edge', 'r', 'r-edge', 'c', 'c-edge', 'i', 'i-edge', 'o', 'o-edge'];
+
+// 나무 한 그루 (지름 d px): 1px는 점, 2px는 빛·그늘 2×2, 3px 이상은 둥근 수관 + 테두리 + 왼쪽 위 빛
+function blob(pen: Pen, x: number, y: number, d: number) {
+  if (d <= 1) { pen(P.m)(x, y); return; }
+  if (d === 2) { pen(P.l)(x, y); pen(P.m)(x + 1, y); pen(P.d)(x, y + 1); pen(P.o)(x + 1, y + 1); return; }
+  const r = d / 2;
+  for (let j = 0; j < d; j++) for (let i = 0; i < d; i++) {
+    const dx = i + 0.5 - r, dy = j + 0.5 - r, q = dx * dx + dy * dy;
+    if (q > r * r) continue;
+    const edge = q > (r - 1) * (r - 1);
+    pen(edge ? P.o : dx + dy < -r * 0.4 ? P.h : dx + dy < 0 ? P.l : dx + dy < r * 0.6 ? P.m : P.d)(x + i, y + j);
+  }
+  pen(P.s)(x + d, y + Math.round(r), 1, Math.round(r));
+}
+// 실제 크기 건물 (미터 → px). 작으면 옥상 + 벽 한 줄 + 그림자만
+function bldM(pen: Pen, mpp: number, xm: number, ym: number, wm: number, dm: number, hm: number, c: Bld, glass = false) {
+  const x = xm / mpp, y = ym / mpp, w = Math.max(1, Math.round(wm / mpp)), d = Math.max(1, Math.round(dm / mpp)), h = Math.max(1, Math.round(hm * 0.32 / mpp));
+  if (w >= 8 && d + h >= 6) { building(pen, x, y, w, d, h, c, glass); return; }
+  pen('rgba(25,30,25,0.30)')(x + 1, y + 1, w, d + h);
+  pen(c.roof)(x, y, w, d); pen(c.wallSh)(x, y + d, w, h);
+}
+function grassGround(pen: Pen, r: () => number, base = '#93C063', n = 340) { ground(pen, r, base, GRASS, n); }
+
+// 실제 크기 무늬 하나 (타일 = 128 px = 128·mpp 미터)
+function realTile(kind: string, mpp: number) {
+  const W = T * mpp;   // 타일 한 변 미터
+  return (pen: Pen, r: () => number) => {
+    const trees = (n: number, gapM: number, size = 7) => { for (const [x, y] of scatter(r, n, gapM / mpp)) blob(pen, x, y, Math.max(1, Math.round((size + (r() - 0.5) * 3) / mpp))); };
+    const area = (perHa: number) => Math.round(perHa * (W * W) / 10000);   // 헥타르당 개수 → 타일 안 개수
+    switch (kind) {
+      case 'f': ground(pen, r, '#3E7330', ['#356629', '#4A8238'], 400); trees(Math.min(2500, area(220)), 5.5); break;
+      case 'f-edge': grassGround(pen, r, '#86BA57'); trees(Math.min(800, area(30)), 12); break;
+      case 'g': grassGround(pen, r, '#8EC25E'); trees(Math.min(600, area(15)), 14, 9); break;
+      case 'o': case 'o-edge': grassGround(pen, r, '#A3C873', 260); trees(Math.min(300, area(4)), 25); break;
+      case 'r': {
+        grassGround(pen, r);
+        // 아파트 단지 (가로 180 m × 세로 160 m 칸): 판상형 동 두 줄 × 세 줄, 동 사이 녹지·주차장. 남은 칸은 빌라 골목
+        for (let by = 0; by < W; by += 160) for (let bx = 0; bx < W; bx += 180) {
+          if (r() < 0.7) {
+            for (let row = 0; row < 3; row++) for (let col = 0; col < 2; col++) {
+              const L = 60 + r() * 30, H = (12 + Math.floor(r() * 10)) * 2.8, c = APT[Math.floor(r() * APT.length)];
+              bldM(pen, mpp, bx + 10 + col * 88, by + 10 + row * 50, L, 13, H, c);
+              if (r() < 0.5) { const px = (bx + 12 + col * 88) / mpp, py = (by + 34 + row * 50 + H * 0.32) / mpp; pen('#A9A79F')(px, py, Math.max(1, Math.round(50 / mpp)), Math.max(1, Math.round(8 / mpp))); }
+            }
+            for (const [x, y] of scatter(r, 6, 20 / mpp, [[(bx + 90) / mpp, (by + 80) / mpp]], 70 / mpp)) blob(pen, x, y, Math.max(1, Math.round(7 / mpp)));
+          } else {
+            pen('#C9C2AE')(bx / mpp, by / mpp, 180 / mpp, 160 / mpp);   // 빌라 골목 바닥
+            for (let yy = 6; yy < 150; yy += 22) for (let xx = 6; xx < 170; xx += 19) if (r() < 0.85) bldM(pen, mpp, bx + xx + (r() - 0.5) * 3, by + yy, 14 + r() * 4, 10, (3 + Math.floor(r() * 2)) * 3, VILLA[Math.floor(r() * VILLA.length)]);
+          }
+        }
+        break;
+      }
+      case 'c': {
+        ground(pen, r, '#CFC8B8', ['#C3BCAC', '#D9D3C5'], 260);
+        for (let by = 0; by < W; by += 90) for (let bx = 0; bx < W; bx += 90) {
+          if (r() < 0.15) { for (const [x, y] of scatter(r, 3, 12 / mpp, [[(bx + 45) / mpp, (by + 45) / mpp]], 30 / mpp)) blob(pen, x, y, Math.max(1, Math.round(7 / mpp))); continue; }   // 광장
+          const t = TOWER[Math.floor(r() * TOWER.length)], s2 = 30 + r() * 30;
+          bldM(pen, mpp, bx + 8 + r() * 10, by + 6, s2, s2 * 0.6, 40 + r() * 110, t, t !== TOWER[2]);
+        }
+        break;
+      }
+      case 'i': {
+        ground(pen, r, '#BFC3BC', ['#B1B5AE', '#CBCFC8'], 220);
+        const shedC: Bld = { roof: '#8AA2AE', roofHi: '#A4BAC4', edge: '#4F6470', wall: '#D6D1C4', wallSh: '#B9B3A4', win: '#6F8794' };
+        for (let by = 0; by < W; by += 60) for (let bx = 0; bx < W; bx += 110) if (r() < 0.8) bldM(pen, mpp, bx + 6, by + 6, 80 + r() * 20, 30, 12, shedC);
+        break;
+      }
+      default: grassGround(pen, r); trees(Math.min(300, area(6)), 20, 6);   // 다른 지형 둘레 띠
+    }
+  };
+}
+
+// 멀리서 보는 기호 무늬 (화면 고정 크기): 납작한 색 + 고르게 흩은 작은 기호
+const FLAT: Record<string, string> = { f: '#6F9C55', g: '#A8CE7C', r: '#D8CDB3', c: '#CFC6B8', i: '#C2C6C2', o: '#C5D6A2' };
+const ICON_TREE = [' o ', 'olm', 'odd', ' t '];
+const ICON_HOUSE = ['xx', 'ww'];
+const ICON_TOWER = ['xx', 'gg', 'ww', 'ww'];
+const ICON_SHED = ['xxxx', 'wwww'];
+const ICON_GRASS = ['g g', ' g '];
+function strategicTile(kind: string) {
+  const t = kind.replace('-edge', ''), edge = kind.endsWith('-edge');
+  return (pen: Pen, r: () => number) => {
+    pen(edge ? FLAT.o : FLAT[t] ?? FLAT.o)(0, 0, T, T);
+    const step = { f: 6, g: 9, r: 6, c: 6, i: 9, o: 14 }[t] ?? 10, keep = edge ? 0.25 : 1;
+    for (let y = 0; y < T; y += step) for (let x = 0; x < T; x += step) {
+      if (r() > keep * (t === 'o' ? 0.5 : 0.95)) continue;
+      const px = x + ((y / step) & 1 ? step / 2 : 0) + Math.floor(r() * 2), py = y + Math.floor(r() * 2);
+      if (t === 'f' || (edge && t === 'f')) sprite(pen, px, py, ICON_TREE, { o: '#2F5A27', l: '#6FAE52', m: '#4F8A3B', d: '#3B6E2F', t: '#6B4A2B' });
+      else if (t === 'g' || t === 'o') sprite(pen, px, py, r() < 0.3 ? ICON_TREE : ICON_GRASS, { o: '#3B6E2F', l: '#7FBA5C', m: '#5E9A44', d: '#4B8238', t: '#6B4A2B', g: '#7BAA55' });
+      else if (t === 'r') sprite(pen, px, py, ICON_HOUSE, { x: '#B7AC96', w: '#8E8371' });
+      else if (t === 'c') sprite(pen, px, py, ICON_TOWER, { x: '#B3B9BE', g: '#86A0B2', w: '#6E7E8A' });
+      else if (t === 'i') sprite(pen, px, py, ICON_SHED, { x: '#9FB0B8', w: '#76858C' });
+    }
+  };
+}
+
 export function addTerrainPatterns(m: MLMap) {
-  for (const [k, f] of Object.entries(DRAW)) { const id = `pat-${k}`; if (!m.hasImage(id)) m.addImage(id, canvasTile(f, [...k].reduce((a, c) => a * 31 + c.charCodeAt(0), 7)), { pixelRatio: PR }); }
+  const seed = (k: string) => [...k].reduce((a, c) => a * 31 + c.charCodeAt(0), 7);
+  for (const k of KINDS) {
+    const add = (id: string, f: (pen: Pen, r: () => number) => void) => { if (!m.hasImage(id)) m.addImage(id, canvasTile(f, seed(id)), { pixelRatio: PR }); };
+    add(`pat-${k}-s`, strategicTile(k));
+    for (const z of Object.keys(MPP)) add(`pat-${k}-z${z}`, realTile(k, MPP[+z]));
+  }
 }
