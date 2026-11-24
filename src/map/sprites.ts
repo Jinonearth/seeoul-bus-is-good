@@ -60,55 +60,12 @@ const TREE_S = [
 const BUSH = [' oooo ', 'olhmdo', 'odmmdos', ' ooooss'];
 const TUFT = [' g g ', 'gG gG', ' GgG '];
 const FLOWER = [' p ', 'pyp', ' p '];
-// ── 3/4 집: 지붕 면 + 앞 벽 (R 지붕 밝음 r 지붕 q 지붕 그늘 x 지붕 테두리 w 벽 v 벽 그늘 n 벽 테두리 D 문 W 창) ──
-const ROOFS = [
-  { R: '#E08A66', r: '#C2603F', q: '#9B4A31', x: '#6E3020' },
-  { R: '#7FB0C9', r: '#5A8FAE', q: '#45728D', x: '#2D4E63' },
-  { R: '#E6C06A', r: '#C99A42', q: '#A27831', x: '#6E5020' },
-  { R: '#B58ACB', r: '#9468AD', q: '#78528E', x: '#4E3460' },
-];
-const HOUSE = [
-  '   xxxxxxxx    ',
-  '  xRRRRRRRRx   ',
-  ' xRRRRRRRRRrx  ',
-  'xrrrrrrrrrrrqx ',
-  'xqqqqqqqqqqqqx ',
-  ' nwwwwwwwwwwvns',
-  ' nwWWwDDwWWwvns',
-  ' nwWWwDDwWWwvns',
-  ' nnnnnDDnnnnnns',
-  '  sssssssssssss'];
-const BLOCK = [
-  'eeeeeeeeeeee   ',
-  'eaaaaaaaaaabe  ',
-  'eabbbAAbbbbce  ',
-  'eabbbBBbbbbce  ',
-  'eabbbbbbbbbce  ',
-  'eccccccccccce  ',
-  'efGfGfGfGfGfes ',
-  'efGfGfGfGfGfes ',
-  'effffffffffffss',
-  'eeeeeeeeeeeeess',
-  '  sssssssssssss'];
-const BLOCK_PALS = [
-  { a: '#E2DFD8', b: '#C9C5BD', c: '#AAA59C', e: '#6F6A62', A: '#F2F1EE', B: '#8E8A84', f: '#D8D2C4', G: '#8FB8CB', s: 'rgba(30,30,40,0.30)' },
-  { a: '#D8DDE2', b: '#BCC4CC', c: '#9DA7B0', e: '#5E6770', A: '#F2F4F6', B: '#848C93', f: '#CDD3D8', G: '#93BFD3', s: 'rgba(30,30,40,0.30)' },
-];
-
-function house(pen: Pen, x: number, y: number, k: number) {
-  sprite(pen, x, y, HOUSE, { ...ROOFS[k % ROOFS.length], w: '#F1E6CC', v: '#D3C3A2', n: '#8C7A5A', D: '#7A5236', W: '#8FC1D4', s: 'rgba(30,22,12,0.30)' });
-}
 export function path(pen: Pen, r: () => number, x0: number, y0: number, len: number, horiz: boolean) {
   let x = x0, y = y0;
   for (let i = 0; i < len; i++) {
     pen('#B39A6A')(x - 1, y - 1, horiz ? 1 : 4, horiz ? 4 : 1); pen('#D9C38F')(x, y, horiz ? 1 : 3, horiz ? 3 : 1); pen('#E6D3A3')(x, y, 1, 1);
     if (horiz) { x++; if (r() < 0.15) y += r() < 0.5 ? 1 : -1; } else { y++; if (r() < 0.15) x += r() < 0.5 ? 1 : -1; }
   }
-}
-function field(pen: Pen, x: number, y: number, w: number, h: number) {
-  pen('#7A5A36')(x - 1, y - 1, w + 2, h + 2); pen('#A8814F')(x, y, w, h);
-  for (let j = 0; j < h; j += 2) pen('#8E6A40')(x, y + j, w, 1);
-  for (let i = 1; i < w; i += 3) pen('#7FAE4F')(x + i, y + 1, 1, 1);
 }
 const GRASS = ['#7FB451', '#8DC05C', '#73A847', '#9ACB68'];
 
@@ -128,20 +85,64 @@ const park = (pen: Pen, r: () => number) => {
   for (const [x, y] of scatter(r, 10, 14)) sprite(pen, x - 3, y - 2, BUSH, P);
   for (const [x, y] of scatter(r, 30, 8)) sprite(pen, x - 1, y - 1, FLOWER, { p: r() < 0.5 ? '#F29BB9' : '#F7F2E6', y: '#F2C94E' });
 };
+// ── 3/4로 본 건물: 위는 평평한 옥상, 아래는 층수만큼 높은 앞 벽(창 격자). 높을수록 앞 벽이 길고 그림자도 길어요 ──
+// x, y = 옥상 왼쪽 위, w = 너비, d = 옥상 깊이, h = 앞 벽 높이(px). 그림자는 오른쪽(동)과 아래(남)로
+type Bld = { roof: string; roofHi: string; edge: string; wall: string; wallSh: string; win: string; winHi?: string };
+function building(pen: Pen, x: number, y: number, w: number, d: number, h: number, c: Bld, glass = false) {
+  const sh = Math.max(2, Math.round(h * 0.35));
+  pen('rgba(25,30,25,0.28)')(x + w, y + 2, sh, d + h - 1);          // 동쪽 그림자
+  pen('rgba(25,30,25,0.22)')(x + 2, y + d + h, w + sh - 2, Math.max(1, Math.round(sh / 2)));   // 남쪽 그림자
+  pen(c.edge)(x - 1, y - 1, w + 2, d + h + 2);                       // 테두리
+  pen(c.roof)(x, y, w, d); pen(c.roofHi)(x, y, w, 1); pen(c.roofHi)(x, y, 1, d);   // 옥상 (왼쪽 위 빛)
+  if (w > 10) { pen(c.edge)(x + 2, y + 1, 5, 3); pen('#E9E6DF')(x + 3, y + 1, 3, 2); }   // 옥상 계단실·설비
+  pen(c.edge)(x, y + d, w, 1);                                       // 처마 줄
+  pen(c.wall)(x, y + d + 1, w, h - 1);                               // 앞 벽
+  pen(c.wallSh)(x + w - 2, y + d + 1, 2, h - 1);                     // 벽 오른쪽 그늘
+  if (glass) { for (let yy = y + d + 2; yy < y + d + h - 1; yy += 2) pen(c.win)(x + 1, yy, w - 3, 1); for (let xx = x + 3; xx < x + w - 2; xx += 4) pen(c.wallSh)(xx, y + d + 1, 1, h - 1); if (c.winHi) pen(c.winHi)(x + 1, y + d + 2, Math.round(w / 3), 1); }
+  else for (let yy = y + d + 2; yy < y + d + h - 1; yy += 2) for (let xx = x + 1; xx < x + w - 2; xx += 3) pen(c.win)(xx, yy, 2, 1);   // 층마다 창 줄
+}
+const APT: Bld[] = [
+  { roof: '#D9D5CB', roofHi: '#ECE9E1', edge: '#7D776C', wall: '#EFE7D6', wallSh: '#D4C9B3', win: '#7E97A6' },
+  { roof: '#D4D6D3', roofHi: '#E9EBE8', edge: '#737873', wall: '#F2F1EC', wallSh: '#D2D2CB', win: '#7A90A0' },
+  { roof: '#DCD3C8', roofHi: '#EEE7DD', edge: '#7E7064', wall: '#EADBC9', wallSh: '#CFBCA5', win: '#8197A3' },
+];
+const VILLA: Bld[] = [
+  { roof: '#CBBFAF', roofHi: '#DDD3C5', edge: '#6E6255', wall: '#E8D9C4', wallSh: '#CBB89E', win: '#7C93A0' },
+  { roof: '#C8C2BC', roofHi: '#DCD7D1', edge: '#686259', wall: '#D9CFC6', wallSh: '#BDB1A5', win: '#7C93A0' },
+  { roof: '#C3B2A6', roofHi: '#D8C9BE', edge: '#6A5A4F', wall: '#E3C9B4', wallSh: '#C7A891', win: '#7C93A0' },
+];
+const TOWER: Bld[] = [
+  { roof: '#C9CDD1', roofHi: '#E1E4E7', edge: '#4F5A64', wall: '#8FA9BC', wallSh: '#6F8A9E', win: '#B7CEDC', winHi: '#DCEAF2' },
+  { roof: '#CCCAC4', roofHi: '#E3E1DC', edge: '#55606A', wall: '#9AAFBD', wallSh: '#7790A1', win: '#C2D5E0', winHi: '#E2EEF4' },
+  { roof: '#D2CFC8', roofHi: '#E6E3DD', edge: '#5C5850', wall: '#D9D2C4', wallSh: '#BCB3A2', win: '#8AA2B2' },
+];
+function parking(pen: Pen, x: number, y: number, w: number) {
+  pen('#A9A79F')(x, y, w, 7); pen('#B9B7AF')(x, y, w, 1);
+  for (let i = x + 2; i < x + w - 1; i += 4) pen('#E8E6DE')(i, y + 1, 1, 5);
+}
 const residential = (pen: Pen, r: () => number) => {
-  ground(pen, r, '#93C063', GRASS, 380);
-  const centers: [number, number][] = [[28, 16], [96, 18], [30, 62], [100, 60], [24, 112], [96, 112]];
-  for (const [cx, cy] of centers) { pen('#C9B27E')(cx - 18, cy - 9, 36, 20); pen('#D8C394')(cx - 17, cy - 8, 34, 18); }   // 집 무리 아래 흙마당 (도로와 헷갈리지 않게 길은 안 그려요)
-  for (const [x, y] of scatter(r, 16, 17, centers, 16)) house(pen, x - 7, y - 5, Math.floor(r() * 4));
-  field(pen, 70 + Math.floor(r() * 20), 70, 16, 10);
-  for (const [x, y] of scatter(r, 10, 14)) sprite(pen, x - 4, y - 4, r() < 0.6 ? TREE_S : BUSH, P);
+  ground(pen, r, '#93C063', GRASS, 300);
+  // 아파트 단지: 긴 판상형 동이 나란히 (앞 벽 높이 = 층수), 사이에 녹지·주차장
+  for (const row of [0, 1]) {
+    const y0 = 6 + row * 40;
+    for (const x0 of [4, 52]) {
+      const w = 38 + Math.floor(r() * 6), h = 14 + Math.floor(r() * 8), c = APT[Math.floor(r() * APT.length)];
+      building(pen, x0, y0, w, 6, h, c);
+      if (r() < 0.6) parking(pen, x0, y0 + 6 + h + 4, w - 6);
+      else for (const [tx, ty] of scatter(r, 3, 10, [[x0 + w / 2, y0 + 6 + h + 8]], 14)) sprite(pen, tx - 4, ty - 4, TREE_S, P);
+    }
+  }
+  // 빌라 골목: 3~4층 네모난 건물이 조금씩 모여요
+  for (const [x, y] of scatter(r, 6, 17, [[30, 100], [92, 100]], 18)) building(pen, x - 6, y - 8, 11 + Math.floor(r() * 3), 5, 7 + Math.floor(r() * 3), VILLA[Math.floor(r() * VILLA.length)]);
+  for (const [x, y] of scatter(r, 6, 16)) sprite(pen, x - 4, y - 4, TREE_S, P);
 };
 const commercial = (pen: Pen, r: () => number) => {
   ground(pen, r, '#CFC8B8', ['#C3BCAC', '#D9D3C5'], 260);
-  for (let i = 0; i < T; i += 16) { pen('#C2BBAA')(i, 0, 1, T); pen('#C2BBAA')(0, i, T, 1); }
-  for (const [cx, cy] of [[20, 14], [52, 14], [84, 14], [116, 14], [20, 78], [52, 78], [100, 70]] as [number, number][]) if (r() < 0.9) sprite(pen, cx - 7, cy - 4, BLOCK, BLOCK_PALS[Math.floor(r() * BLOCK_PALS.length)]);
-  for (const [cx, cy] of [[20, 44], [84, 46], [36, 108], [68, 104], [108, 108]] as [number, number][]) if (r() < 0.8) sprite(pen, cx - 7, cy - 4, BLOCK, BLOCK_PALS[Math.floor(r() * BLOCK_PALS.length)]);
-  for (const [x, y] of scatter(r, 8, 20)) sprite(pen, x - 4, y - 4, TREE_S, P);   // 광장 나무
+  for (let i = 0; i < T; i += 16) { pen('#C2BBAA')(i, 0, 1, T); pen('#C2BBAA')(0, i, T, 1); }   // 보도블록
+  // 업무 빌딩: 큰 바닥, 유리 앞 벽이 높고 그림자도 길어요. 사이사이 작은 광장과 나무
+  const spots: [number, number][] = [[6, 4], [52, 2], [90, 8], [14, 62], [64, 58], [100, 70]];
+  for (const [x, y] of spots) { if (r() < 0.12) continue; const t = TOWER[Math.floor(r() * TOWER.length)], glass = t !== TOWER[2]; building(pen, x, y, 20 + Math.floor(r() * 10), 9, 20 + Math.floor(r() * 16), t, glass); }
+  for (const [x, y] of scatter(r, 7, 18)) sprite(pen, x - 4, y - 4, TREE_S, P);
 };
 const industrial = (pen: Pen, r: () => number) => {
   ground(pen, r, '#BFC3BC', ['#B1B5AE', '#CBCFC8'], 220);
