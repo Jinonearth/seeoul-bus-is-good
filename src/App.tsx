@@ -142,13 +142,17 @@ function GameView({ dm }: { dm: Demand }) {
 
   // 시간 흐름: 현실 1초에 게임 speed분 (1, 5, 10). 한 프레임 최대 0.1초 = 10배속에서 게임 1분
   useEffect(() => {
-    let last = performance.now(), acc = 0, lastBin = game.bin, raf = 0;
+    let last = performance.now(), acc = 0, lastBin = game.bin, raf = 0, drawn = '';
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       game.advance(dt * game.speed); game.fade(dt);
       const m = gm.current;
       if (m?.isReady) {
-        m.setBuses(game.routes, game.bin, selRef.current?.kind === 'route' ? selRef.current.id : null);
+        // 버스가 움직였거나(시간이 흘렀거나 나타나고 사라지는 중) 고른 노선이 바뀔 때만 다시 그려요 (멈춤일 땐 안 그림)
+        const focus = selRef.current?.kind === 'route' ? selRef.current.id : null;
+        const fading = game.routes.some(r => r.bus.some(b => b.gone || (b.a ?? 1) < 1));
+        const sig = `${game.min}|${focus}|${game.routes.map(r => r.bus.length).join()}`;
+        if (fading || sig !== drawn) { drawn = sig; m.setBuses(game.routes, game.bin, focus); }
         if (game.bin !== lastBin) { lastBin = game.bin; redrawRoutes(); }
       }
       acc += dt; if (acc > 0.25) { acc = 0; rerender(); if (m?.isReady) m.setLive(game.pool, i => game.poolEq(i)); }

@@ -59,19 +59,22 @@ export class GameMap {
     this.dm = dm;
     if (!protocolAdded) { maplibregl.addProtocol('pmtiles', new Protocol().tile); protocolAdded = true; }
     const base = import.meta.env.BASE_URL;
-    const tiles = new URL(`${base}tiles/seoul.pmtiles`, location.href).href, land = new URL(`${base}tiles/land.pmtiles`, location.href).href;
+    const tiles = new URL(`${base}tiles/seoul.pmtiles`, location.href).href, land = new URL(`${base}tiles/land.pmtiles`, location.href).href, bld = new URL(`${base}tiles/buildings.pmtiles`, location.href).href;
     this.map = new maplibregl.Map({
-      container: el, style: baseStyle(tiles, land), center: [126.99, 37.56], zoom: 10.2, minZoom: 9.3, maxZoom: 16.5,
+      container: el, style: baseStyle(tiles, land, bld), center: [126.99, 37.56], zoom: 10.2, minZoom: 9.3, maxZoom: 16.5,
       maxBounds: [[126.6, 37.35], [127.35, 37.75]], attributionControl: { compact: true },
       localIdeographFontFamily: "'Gothic A1', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif",
       dragRotate: false, pitchWithRotate: false, touchPitch: false,
+      // 부드럽게: 글자·기호 페이드 없이(버스 위치가 매 프레임 바뀌어서), 큰 화면은 그리는 픽셀 수를 줄여요
+      fadeDuration: 0, pixelRatio: Math.min(devicePixelRatio, innerWidth * innerHeight > 900000 ? 1.5 : 2),
     });
     this.map.touchZoomRotate.disableRotation();
     this.ready = new Promise(res => this.map.once('load', () => { this.addLayers(); this.isReady = true; this.foldAttrib(); res(); }));
     this.map.on('zoom', () => { if (this.flows.length) this.drawFlows(); });
+    this.map.on('zoomend', () => { if (this.lastLive) this.setLive(...this.lastLive); });
     this.map.on('click', e => {
       const pad = matchMedia('(pointer: coarse)').matches ? 22 : 8;
-      const hit = this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['route-hit'] });
+      const hit = this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['route-case'] });
       const st = this.map.getLayer('stops-hi') ? this.map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['stops-hi'] }) : [];
       this.onTap({ lngLat: [e.lngLat.lng, e.lngLat.lat], route: hit[0]?.properties?.id as number | undefined, stop: st[0]?.properties?.cell as string | undefined });
     });
@@ -126,7 +129,6 @@ export class GameMap {
     m.addLayer({ id: 'route-p1', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 1], paint: { 'line-color': PAPER, 'line-width': W, 'line-dasharray': [1.3, 1.3], 'line-opacity': op as never } });
     m.addLayer({ id: 'route-p2', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 2], layout: { 'line-join': 'round' }, paint: { 'line-color': PAPER, 'line-width': Wf(w => w * 0.3), 'line-opacity': op as never } });
     m.addLayer({ id: 'route-p3', type: 'line', source: 'routes', minzoom: 11, filter: ['==', ['get', 'pattern'], 3], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#FFFFFF', 'line-width': Wf(w => w * 0.45), 'line-dasharray': [0.1, 2.2], 'line-opacity': op as never } });
-    m.addLayer({ id: 'route-hit', type: 'line', source: 'routes', filter: ['!', ['get', 'lo']], paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
     m.addSource('stops', { type: 'geojson', data: fc() });
     // 줌인 정류장: 셀마다 하나. 노선 하나 = 흰 동그라미, 둘 이상 = 환승 알약(노선색 점)
     m.addSource('stops-hi', { type: 'geojson', data: fc() });
@@ -193,10 +195,13 @@ export class GameMap {
   private live = new Map<number, string[]>();
   private liveK = new Map<string, number>();
   private kids: Map<string, number[]>[] | null = null;
+  private lastLive: [Float64Array, (i: number) => number] | null = null;
   setLive(pool: Float64Array, eq: (i: number) => number) {
-    const dm = this.dm;
+    const dm = this.dm; this.lastLive = [pool, eq];
+    const shown = resForZoom(this.map.getZoom());   // 지금 줌에서 보이는 해상도만 (나머지는 줌이 바뀔 때)
     this.kids ??= [7, 8].map(res => { const m = new Map<string, number[]>(); dm.cells.forEach(c => { const p = cellToParent(c.id, res); (m.get(p) ?? m.set(p, []).get(p)!).push(c.i); }); return m; });
     for (const [res, list] of this.live) {
+      if (res !== shown) continue;
       for (const id of list) {
         let k: number;
         if (res === 9) { const i = dm.byId.get(id)!.i, e = eq(i); k = e > 0 ? pool[i] / e : 1; }
@@ -209,7 +214,10 @@ export class GameMap {
   }
 
   // 지금 시간대 수요를 헥사곤 망점으로
+  private demandBin = -1;
   setDemand(bin: number) {
+    if (bin === this.demandBin) return;   // 시간대가 바뀔 때만 다시 만들어요 (노선을 고르거나 바꿀 때마다 수천 개 헥사곤을 새로 만들면 끊겨요)
+    this.demandBin = bin;
     const dm = this.dm;
     this.liveK.clear();
     const sets: [number, { id: string; lat: number; lng: number; O: number[] }[]][] = [

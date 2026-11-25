@@ -7,20 +7,24 @@ export const INK = '#1D1D1B', PAPER = '#F3F1EA', GROUND = '#ECE8DC', WATER = '#B
 // 뽑은 색: 땅 #F5F5F3, 주거 #F1EEEA, 상업 #F4F2EF, 공원 #DCEDC9, 숲 #D5E9C8, 도로 #FFFFFF, 도로 테두리 #D6DBDD, 글자 #2A3038
 export const MAP = { land: '#F5F5F3', res: '#F1EEEA', com: '#F4F2EF', ind: '#EEEFEF', park: '#DCEDC9', forest: '#D3E7C4', water: '#CDE3EE', road: '#FFFFFF', roadEdge: '#D6DBDD', major: '#FFFFFF', majorEdge: '#C9CFD3', text: '#2A3038' };
 
-export function baseStyle(tilesUrl: string, landUrl: string): StyleSpecification {
+export function baseStyle(tilesUrl: string, landUrl: string, buildingsUrl: string): StyleSpecification {
   return {
     version: 8,
     // 한글은 기기 글꼴로 그림(localIdeographFontFamily), 숫자·로마자만 글리프 서버에서
     glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       seoul: { type: 'vector', url: `pmtiles://${tilesUrl}`, attribution: '도로 국토교통부 표준노드링크 · 경계 admdongkor (CC BY 4.0) · 수요 서울시 TOPIS' },
-      land: { type: 'vector', url: `pmtiles://${landUrl}`, attribution: '땅 쓰임 © OpenStreetMap 기여자 (ODbL)' },
+      land: { type: 'vector', url: `pmtiles://${landUrl}`, attribution: '땅 쓰임·건물 © OpenStreetMap 기여자 (ODbL)' },
+      buildings: { type: 'vector', url: `pmtiles://${buildingsUrl}` },
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': MAP.land } },
       // 땅 쓰임 (OSM 면): 녹지·숲은 연초록, 주거·상업·공업은 바탕보다 아주 조금 다른 회백색
       { id: 'land', type: 'fill', source: 'land', 'source-layer': 'land',
         paint: { 'fill-color': ['match', ['get', 'class'], 'forest', MAP.forest, 'green', MAP.park, 'res', MAP.res, 'com', MAP.com, MAP.ind] } },
+      // 건물 (OSM 외곽선, 줌 14부터 서서히): 옅은 회색 면 + 조금 짙은 테두리, 도로 아래
+      { id: 'building', type: 'fill', source: 'buildings', 'source-layer': 'building', minzoom: 14,
+        paint: { 'fill-color': '#E6E8E8', 'fill-outline-color': '#D3D8DA', 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15, 1] } },
       { id: 'river', type: 'line', source: 'seoul', 'source-layer': 'river',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         // 한강 폭 약 1km를 줌에 맞춰 픽셀로
