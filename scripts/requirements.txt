@@ -1,0 +1,6 @@
+pyshp
+pyproj
+shapely>=2
+mapbox-vector-tile
+pmtiles
+h3

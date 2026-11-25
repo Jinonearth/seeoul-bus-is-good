@@ -1,0 +1,15 @@
+/* B "인쇄 노선도" 토큰 (design-assets/tokens.css 기준) */
+:root{
+  color-scheme: light;
+  --ink:#1D1D1B; --paper:#F3F1EA; --ground:#ECE8DC; --water:#BCD6E6;
+  --fg:#1D1D1B; --muted:#5E5A52; --dim:#3A362F; --accent:#FFB511; --pink:#FF48B0;
+  --good:#0072B2; --warn:#E69F00; --bad:#D55E00;
+  --f-display:"Black Han Sans","Gothic A1",system-ui,sans-serif;
+  --f-body:"Gothic A1",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+}
+*{box-sizing:border-box}
+html,body,#root{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
+body{background:#D6D0C0;color:var(--fg);font-family:var(--f-body);position:fixed;inset:0}
+/* 화면 높이: 브라우저 도구 막대를 뺀 실제 보이는 높이(--app-h, main.tsx에서 visualViewport로), 없으면 100dvh */
+#stage{position:fixed;inset:0;height:var(--app-h,100dvh) !important}
+button{font:inherit;color:inherit}

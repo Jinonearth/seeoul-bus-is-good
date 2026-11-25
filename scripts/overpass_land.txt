@@ -1,0 +1,10 @@
+[out:json][timeout:600][maxsize:1073741824];
+(
+  way["landuse"~"^(forest|grass|meadow|residential|commercial|industrial|retail|cemetery|recreation_ground|village_green)$"](37.41,126.76,37.72,127.19);
+  relation["landuse"~"^(forest|grass|meadow|residential|commercial|industrial|retail|cemetery|recreation_ground)$"](37.41,126.76,37.72,127.19);
+  way["leisure"~"^(park|golf_course|garden)$"](37.41,126.76,37.72,127.19);
+  relation["leisure"~"^(park|golf_course)$"](37.41,126.76,37.72,127.19);
+  way["natural"~"^(wood|scrub|grassland|heath)$"](37.41,126.76,37.72,127.19);
+  relation["natural"~"^(wood|scrub|grassland)$"](37.41,126.76,37.72,127.19);
+);
+out geom;
